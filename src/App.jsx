@@ -1,884 +1,508 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
-  Scissors, Calendar, Clock, User, CheckCircle2, ChevronRight,
-  ChevronLeft, Shield, LayoutDashboard, BarChart3, Settings,
-  Plus, DollarSign, TrendingUp, Award, Package, AlertTriangle,
-  Sparkles, LogOut, QrCode, CreditCard, Banknote, X, Check,
-  Smartphone, Users, Store, ArrowUpRight, ArrowDownRight
+  Scissors, Calendar, Clock, User, Users, Shield, Crown, CheckCircle2,
+  XCircle, AlertTriangle, Plus, Trash2, Edit3, DollarSign, TrendingUp,
+  Package, BarChart3, Lock, Unlock, LogOut, ArrowLeft, ChevronRight,
+  Store, CreditCard, Sparkles, Search, Sliders, Award, Eye, Phone
 } from 'lucide-react';
 
-// Componente Inteligente de Logo (Usa public/logo.png se existir, senão usa ícone padrão)
-const BrandLogo = ({ size = "md" }) => {
-  const [imgError, setImgError] = useState(false);
-  const sizeClasses = size === "sm" ? "w-8 h-8" : size === "lg" ? "w-14 h-14" : "w-10 h-10";
+// ============================================================================
+// DADOS INICIAIS MULTI-TENANT (SIMULANDO BANCO DE DADOS RELACIONAL)
+// ============================================================================
 
-  if (!imgError) {
-    return (
-      <img
-        src="/logo.png"
-        alt="Navalha.io"
-        onError={() => setImgError(true)}
-        className={`${sizeClasses} rounded-xl object-cover border border-amber-500/30 shadow-lg shadow-amber-500/10`}
-      />
-    );
-  }
-
-  return (
-    <div className={`${sizeClasses} rounded-xl bg-gradient-to-br from-amber-500 to-amber-600 flex items-center justify-center text-zinc-950 shadow-lg shadow-amber-500/20`}>
-      <Scissors className={size === "sm" ? "w-4 h-4" : "w-5 h-5"} strokeWidth={2.5} />
-    </div>
-  );
+const PLANS = {
+  start: { id: 'start', name: 'Start', price: 79, maxBarbers: 2, label: 'Até 2 cadeiras' },
+  pro: { id: 'pro', name: 'Pro', price: 149, maxBarbers: 6, label: 'Até 6 cadeiras + Estoque & BI' },
+  rede: { id: 'rede', name: 'Rede / Multi', price: 249, maxBarbers: 99, label: 'Cadeiras ilimitadas' },
 };
 
-// Dados Iniciais Simulados (MVP)
+const INITIAL_TENANTS = [
+  {
+    id: 'tenant-1',
+    name: 'Barbearia Viking',
+    slug: 'barbearia-viking',
+    ownerName: 'Carlos Mendes',
+    ownerEmail: 'carlos@vikingbarber.com.br',
+    phone: '(82) 99911-2233',
+    planId: 'pro',
+    status: 'active', // active | trial | blocked
+    expiresAt: '2026-12-15',
+    gatewayFeePercent: 3.5,
+  },
+  {
+    id: 'tenant-2',
+    name: 'Corte & Navalha Studio',
+    slug: 'corte-navalha',
+    ownerName: 'André Souza',
+    ownerEmail: 'andre@cortenavalha.com.br',
+    phone: '(82) 98844-5566',
+    planId: 'start',
+    status: 'trial',
+    expiresAt: '2026-11-26',
+    gatewayFeePercent: 3.5,
+  },
+  {
+    id: 'tenant-3',
+    name: 'Don Barber Club',
+    slug: 'don-barber',
+    ownerName: 'Roberto Lima',
+    ownerEmail: 'roberto@donbarber.com.br',
+    phone: '(82) 99677-8899',
+    planId: 'rede',
+    status: 'blocked',
+    expiresAt: '2026-11-10',
+    gatewayFeePercent: 2.9,
+  },
+];
+
 const INITIAL_SERVICES = [
-  { id: 1, name: 'Corte Degradê / Navalhado', duration: '45 min', price: 50, category: 'Cabelo' },
-  { id: 2, name: 'Barba Terapia & Toalha Quente', duration: '30 min', price: 40, category: 'Barba' },
-  { id: 3, name: 'Combo Navalha (Corte + Barba)', duration: '75 min', price: 80, category: 'Combo', popular: true },
-  { id: 4, name: 'Sobrancelha na Navalha', duration: '15 min', price: 15, category: 'Acabamento' },
+  { id: 'srv-1', tenantId: 'tenant-1', name: 'Corte Degradê / Navalhado', price: 45, duration: 45, category: 'Cabelo', active: true },
+  { id: 'srv-2', tenantId: 'tenant-1', name: 'Barba Terapia com Toalha Quente', price: 35, duration: 30, category: 'Barba', active: true },
+  { id: 'srv-3', tenantId: 'tenant-1', name: 'Combo Viking (Corte + Barba)', price: 75, duration: 75, category: 'Combo', active: true },
+  { id: 'srv-4', tenantId: 'tenant-1', name: 'Platinado / Nevou Completo', price: 140, duration: 120, category: 'Química', active: true },
+  { id: 'srv-5', tenantId: 'tenant-2', name: 'Corte Social / Tesoura', price: 40, duration: 40, category: 'Cabelo', active: true },
+  { id: 'srv-6', tenantId: 'tenant-2', name: 'Corte + Sobrancelha', price: 50, duration: 45, category: 'Combo', active: true },
+  { id: 'srv-7', tenantId: 'tenant-3', name: 'Corte Executivo', price: 60, duration: 45, category: 'Cabelo', active: true },
 ];
 
 const INITIAL_BARBERS = [
-  { id: 1, name: 'Lucas "Navalha"', role: 'Master Barber', commission: 50, rating: 4.9, cuts: 142, ticket: 74.50, avatar: 'LN' },
-  { id: 2, name: 'Mateus Silva', role: 'Barbeiro Sênior', commission: 45, rating: 4.8, cuts: 118, ticket: 68.00, avatar: 'MS' },
-  { id: 3, name: 'Rafael Costa', role: 'Barbeiro', commission: 40, rating: 4.7, cuts: 89, ticket: 55.20, avatar: 'RC' },
+  {
+    id: 'barb-1',
+    tenantId: 'tenant-1',
+    name: 'Lucas Silva',
+    roleTitle: 'Barbeiro Sênior',
+    email: 'lucas@vikingbarber.com.br',
+    commissionPercent: 50,
+    active: true,
+    workHours: 'Seg a Sáb • 09:00 - 19:00',
+    lunchBreak: '12:00 - 13:00',
+    serviceIds: ['srv-1', 'srv-2', 'srv-3', 'srv-4'],
+    rating: 4.9,
+  },
+  {
+    id: 'barb-2',
+    tenantId: 'tenant-1',
+    name: 'Rafael Costa',
+    roleTitle: 'Especialista em Degradê',
+    email: 'rafael@vikingbarber.com.br',
+    commissionPercent: 45,
+    active: true,
+    workHours: 'Ter a Sáb • 10:00 - 20:00',
+    lunchBreak: '13:00 - 14:00',
+    serviceIds: ['srv-1', 'srv-2', 'srv-3'],
+    rating: 4.8,
+  },
+  {
+    id: 'barb-3',
+    tenantId: 'tenant-1',
+    name: 'Matheus Oliveira',
+    roleTitle: 'Barbeiro Júnior',
+    email: 'matheus@vikingbarber.com.br',
+    commissionPercent: 40,
+    active: true,
+    workHours: 'Qua a Sáb • 09:00 - 18:00',
+    lunchBreak: '12:00 - 13:00',
+    serviceIds: ['srv-1', 'srv-2'],
+    rating: 4.7,
+  },
+  {
+    id: 'barb-4',
+    tenantId: 'tenant-2',
+    name: 'André Souza',
+    roleTitle: 'Master Barber',
+    email: 'andre@cortenavalha.com.br',
+    commissionPercent: 60,
+    active: true,
+    workHours: 'Seg a Sáb • 09:00 - 19:00',
+    lunchBreak: '12:00 - 13:00',
+    serviceIds: ['srv-5', 'srv-6'],
+    rating: 5.0,
+  },
+  {
+    id: 'barb-5',
+    tenantId: 'tenant-2',
+    name: 'Diego Martins',
+    roleTitle: 'Barbeiro',
+    email: 'diego@cortenavalha.com.br',
+    commissionPercent: 45,
+    active: true,
+    workHours: 'Ter a Sáb • 10:00 - 19:00',
+    lunchBreak: '13:00 - 14:00',
+    serviceIds: ['srv-5'],
+    rating: 4.6,
+  },
 ];
 
 const INITIAL_APPOINTMENTS = [
-  { id: 101, client: 'Gabriel Oliveira', phone: '(82) 99912-3456', service: 'Combo Navalha (Corte + Barba)', barber: 'Lucas "Navalha"', barberId: 1, time: '09:00', price: 80, status: 'paid', method: 'Pix' },
-  { id: 102, client: 'Pedro Henrique', phone: '(82) 98823-4567', service: 'Corte Degradê / Navalhado', barber: 'Mateus Silva', barberId: 2, time: '10:00', price: 50, status: 'pending', method: null },
-  { id: 103, client: 'Thiago Martins', phone: '(82) 99134-5678', service: 'Barba Terapia & Toalha Quente', barber: 'Lucas "Navalha"', barberId: 1, time: '11:00', price: 40, status: 'pending', method: null },
-  { id: 104, client: 'Bruno Ferreira', phone: '(82) 99645-6789', service: 'Combo Navalha (Corte + Barba)', barber: 'Rafael Costa', barberId: 3, time: '14:00', price: 80, status: 'pending', method: null },
+  {
+    id: 'apt-101',
+    tenantId: 'tenant-1',
+    clientName: 'João Pedro Alves',
+    clientPhone: '(82) 99123-4567',
+    barberId: 'barb-1',
+    serviceId: 'srv-3',
+    date: '2026-11-19',
+    time: '09:00',
+    status: 'completed', // scheduled | completed | canceled
+    priceSnapshot: 75,
+    netAmount: 72.38,
+    barberCommission: 36.19,
+    paymentMethod: 'Pix',
+  },
+  {
+    id: 'apt-102',
+    tenantId: 'tenant-1',
+    clientName: 'Marcos Vinícius',
+    clientPhone: '(82) 99876-5432',
+    barberId: 'barb-2',
+    serviceId: 'srv-1',
+    date: '2026-11-19',
+    time: '10:00',
+    status: 'scheduled',
+    priceSnapshot: 45,
+    netAmount: 0,
+    barberCommission: 0,
+    paymentMethod: 'Pendente',
+  },
+  {
+    id: 'apt-103',
+    tenantId: 'tenant-1',
+    clientName: 'Felipe Vasconcelos',
+    clientPhone: '(82) 98765-1122',
+    barberId: 'barb-1',
+    serviceId: 'srv-4',
+    date: '2026-11-19',
+    time: '14:00',
+    status: 'scheduled',
+    priceSnapshot: 140,
+    netAmount: 0,
+    barberCommission: 0,
+    paymentMethod: 'Pendente',
+  },
+  {
+    id: 'apt-104',
+    tenantId: 'tenant-2',
+    clientName: 'Gustavo Henrique',
+    clientPhone: '(82) 99333-4455',
+    barberId: 'barb-4',
+    serviceId: 'srv-6',
+    date: '2026-11-19',
+    time: '11:00',
+    status: 'scheduled',
+    priceSnapshot: 50,
+    netAmount: 0,
+    barberCommission: 0,
+    paymentMethod: 'Pendente',
+  },
 ];
 
 const INITIAL_INVENTORY = [
-  { id: 1, name: 'Pomada Efeito Matte 150g', stock: 4, minStock: 8, price: 45, sold15d: 28, daysIdle: 1, curve: 'A' },
-  { id: 2, name: 'Óleo para Barba Cedro 30ml', stock: 19, minStock: 5, price: 55, sold15d: 1, daysIdle: 38, curve: 'C' },
-  { id: 3, name: 'Balm Pós-Barba Refrescante', stock: 12, minStock: 6, price: 40, sold15d: 14, daysIdle: 3, curve: 'B' },
-  { id: 4, name: 'Shampoo Anti-Resíduos Mentol', stock: 15, minStock: 4, price: 60, sold15d: 0, daysIdle: 45, curve: 'C' },
+  { id: 'inv-1', tenantId: 'tenant-1', name: 'Pomada Efeito Matte 150g', stock: 18, minStock: 6, cost: 18, price: 45, curve: 'A' },
+  { id: 'inv-2', tenantId: 'tenant-1', name: 'Óleo para Barba Cedro 30ml', stock: 4, minStock: 5, cost: 15, price: 38, curve: 'A' },
+  { id: 'inv-3', tenantId: 'tenant-1', name: 'Lâmina Platina (Caixa 100un)', stock: 12, minStock: 4, cost: 28, price: 0, curve: 'B' },
+  { id: 'inv-4', tenantId: 'tenant-1', name: 'Shampoo Mentolado 1L', stock: 2, minStock: 3, cost: 32, price: 65, curve: 'C' },
+  { id: 'inv-5', tenantId: 'tenant-2', name: 'Pomada Modeladora Black', stock: 10, minStock: 4, cost: 16, price: 40, curve: 'A' },
 ];
 
-export default function App() {
-  const [view, setView] = useState('client'); // 'client' | 'login' | 'admin'
-  const [appointments, setAppointments] = useState(INITIAL_APPOINTMENTS);
-  const [services] = useState(INITIAL_SERVICES);
-  const [barbers] = useState(INITIAL_BARBERS);
-  const [inventory] = useState(INITIAL_INVENTORY);
+// ============================================================================
+// COMPONENTES AUXILIARES
+// ============================================================================
 
-  // Estados do Fluxo do Cliente
-  const [step, setStep] = useState(1);
-  const [selectedService, setSelectedService] = useState(null);
-  const [selectedBarber, setSelectedBarber] = useState(null);
-  const [selectedDate, setSelectedDate] = useState('Hoje, 19 Nov');
-  const [selectedTime, setSelectedTime] = useState(null);
-  const [clientName, setClientName] = useState('');
-  const [clientPhone, setClientPhone] = useState('');
-  const [bookingConfirmed, setBookingConfirmed] = useState(false);
-
-  // Estados do Admin
-  const [adminTab, setAdminTab] = useState('dashboard'); // 'dashboard' | 'reports' | 'settings'
-  const [checkoutItem, setCheckoutItem] = useState(null);
-  const [paymentMethod, setPaymentMethod] = useState('Pix');
-  const [quickActionOpen, setQuickActionOpen] = useState(false);
-
-  // Confirmar Agendamento do Cliente
-  const handleConfirmBooking = (e) => {
-    e.preventDefault();
-    if (!clientName || !selectedService || !selectedBarber || !selectedTime) return;
-
-    const newApp = {
-      id: Date.now(),
-      client: clientName,
-      phone: clientPhone || '(82) 99999-0000',
-      service: selectedService.name,
-      barber: selectedBarber.name,
-      barberId: selectedBarber.id,
-      time: selectedTime,
-      price: selectedService.price,
-      status: 'pending',
-      method: null,
-    };
-
-    setAppointments([newApp, ...appointments]);
-    setBookingConfirmed(true);
-  };
-
-  const resetClientFlow = () => {
-    setStep(1);
-    setSelectedService(null);
-    setSelectedBarber(null);
-    setSelectedTime(null);
-    setClientName('');
-    setClientPhone('');
-    setBookingConfirmed(false);
-  };
-
-  // Processar Pagamento no Checkout Admin
-  const handleFinishPayment = () => {
-    if (!checkoutItem) return;
-    setAppointments(appointments.map(app =>
-      app.id === checkoutItem.id ? { ...app, status: 'paid', method: paymentMethod } : app
-    ));
-    setCheckoutItem(null);
-  };
-
-  // Cálculos Financeiros em Tempo Real
-  const paidApps = appointments.filter(a => a.status === 'paid');
-  const grossRevenue = paidApps.reduce((acc, curr) => acc + curr.price, 0);
-  const totalCommissions = paidApps.reduce((acc, curr) => {
-    const barber = barbers.find(b => b.id === curr.barberId);
-    const rate = barber ? barber.commission / 100 : 0.45;
-    return acc + (curr.price * rate);
-  }, 0);
-  const netProfit = grossRevenue - totalCommissions;
-
-  // ==========================================
-  // 1. TELA DO CLIENTE (MOBILE-FIRST BOOKING)
-  // ==========================================
-  if (view === 'client') {
-    return (
-      <div className="min-h-screen bg-zinc-950 text-zinc-100 flex justify-center">
-        <div className="w-full max-w-md bg-zinc-900/60 min-h-screen border-x border-zinc-800/80 flex flex-col justify-between relative">
-          {/* Header */}
-          <div>
-            <header className="p-5 flex items-center justify-between border-b border-zinc-800/80 bg-zinc-950/80 backdrop-blur-md sticky top-0 z-20">
-              <div className="flex items-center gap-3">
-                <BrandLogo size="md" />
-                <div>
-                  <h1 className="font-bold text-lg tracking-tight text-white">
-                    NAVALHA<span className="text-amber-500">.io</span>
-                  </h1>
-                  <p className="text-xs text-zinc-400">Barbearia Premium • Maceió</p>
-                </div>
-              </div>
-              <button
-                onClick={() => setView('login')}
-                className="flex items-center gap-1.5 text-xs font-medium text-zinc-400 hover:text-amber-400 bg-zinc-900 border border-zinc-800 px-3 py-2 rounded-lg transition"
-              >
-                <Shield className="w-3.5 h-3.5 text-amber-500" />
-                Acesso Equipe
-              </button>
-            </header>
-
-            {/* Barra de Progresso */}
-            {!bookingConfirmed && (
-              <div className="px-5 pt-4">
-                <div className="flex items-center justify-between text-xs text-zinc-400 mb-2">
-                  <span>Passo {step} de 4</span>
-                  <span className="text-amber-400 font-medium">
-                    {step === 1 && 'Escolha o Serviço'}
-                    {step === 2 && 'Escolha o Profissional'}
-                    {step === 3 && 'Data e Horário'}
-                    {step === 4 && 'Seus Dados'}
-                  </span>
-                </div>
-                <div className="w-full bg-zinc-800 h-1.5 rounded-full overflow-hidden">
-                  <div
-                    className="bg-amber-500 h-full transition-all duration-300"
-                    style={{ width: `${step * 25}%` }}
-                  />
-                </div>
-              </div>
-            )}
-
-            {/* Conteúdo Principal do Agendamento */}
-            <main className="p-5">
-              {bookingConfirmed ? (
-                <div className="bg-zinc-900 border border-emerald-500/30 rounded-2xl p-6 text-center space-y-4 mt-4">
-                  <div className="w-16 h-16 bg-emerald-500/10 text-emerald-400 rounded-full flex items-center justify-center mx-auto border border-emerald-500/20">
-                    <CheckCircle2 className="w-9 h-9" />
-                  </div>
-                  <h2 className="text-xl font-bold text-white">Horário Reservado!</h2>
-                  <p className="text-sm text-zinc-400">
-                    Tudo certo, <span className="text-white font-medium">{clientName}</span>. Seu horário está garantido na agenda.
-                  </p>
-
-                  <div className="bg-zinc-950 rounded-xl p-4 text-left space-y-2.5 border border-zinc-800 text-sm">
-                    <div className="flex justify-between">
-                      <span className="text-zinc-500">Serviço:</span>
-                      <span className="font-medium text-zinc-200">{selectedService?.name}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-zinc-500">Profissional:</span>
-                      <span className="font-medium text-zinc-200">{selectedBarber?.name}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-zinc-500">Quando:</span>
-                      <span className="font-medium text-amber-400">{selectedDate} às {selectedTime}</span>
-                    </div>
-                    <div className="flex justify-between pt-2 border-t border-zinc-800">
-                      <span className="text-zinc-500">Total no local:</span>
-                      <span className="font-bold text-white">R$ {selectedService?.price},00</span>
-                    </div>
-                  </div>
-
-                  <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-3 flex items-center gap-3 text-left">
-                    <Smartphone className="w-5 h-5 text-amber-400 shrink-0" />
-                    <p className="text-xs text-amber-200/90">
-                      Tire um <strong>print desta tela</strong> como comprovante. Integração automática via WhatsApp em breve.
-                    </p>
-                  </div>
-
-                  <button
-                    onClick={resetClientFlow}
-                    className="w-full py-3.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-white font-semibold text-sm transition"
-                  >
-                    Fazer Novo Agendamento
-                  </button>
-                </div>
-              ) : (
-                <>
-                  {/* PASSO 1: SERVIÇOS */}
-                  {step === 1 && (
-                    <div className="space-y-3">
-                      <h2 className="text-lg font-bold text-white mb-3">Qual o estilo de hoje?</h2>
-                      {services.map((service) => (
-                        <button
-                          key={service.id}
-                          onClick={() => {
-                            setSelectedService(service);
-                            setStep(2);
-                          }}
-                          className={`w-full text-left p-4 rounded-2xl border transition flex items-center justify-between ${
-                            selectedService?.id === service.id
-                              ? 'bg-amber-500/10 border-amber-500'
-                              : 'bg-zinc-900 border-zinc-800 hover:border-zinc-700'
-                          }`}
-                        >
-                          <div className="space-y-1">
-                            <div className="flex items-center gap-2">
-                              <span className="font-semibold text-zinc-100">{service.name}</span>
-                              {service.popular && (
-                                <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400">
-                                  Mais Pedido
-                                </span>
-                              )}
-                            </div>
-                            <div className="flex items-center gap-3 text-xs text-zinc-400">
-                              <span className="flex items-center gap-1"><Clock className="w-3.5 h-3.5" /> {service.duration}</span>
-                              <span>• {service.category}</span>
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <span className="font-bold text-amber-400 text-base">R$ {service.price}</span>
-                            <ChevronRight className="w-4 h-4 text-zinc-500" />
-                          </div>
-                        </button>
-                      ))}
-                    </div>
-                  )}
-
-                  {/* PASSO 2: BARBEIROS */}
-                  {step === 2 && (
-                    <div className="space-y-3">
-                      <button onClick={() => setStep(1)} className="flex items-center gap-1 text-xs text-zinc-400 hover:text-white mb-2">
-                        <ChevronLeft className="w-4 h-4" /> Voltar aos serviços
-                      </button>
-                      <h2 className="text-lg font-bold text-white mb-3">Escolha o profissional</h2>
-                      {barbers.map((barber) => (
-                        <button
-                          key={barber.id}
-                          onClick={() => {
-                            setSelectedBarber(barber);
-                            setStep(3);
-                          }}
-                          className="w-full text-left p-4 rounded-2xl bg-zinc-900 border border-zinc-800 hover:border-amber-500/50 transition flex items-center justify-between"
-                        >
-                          <div className="flex items-center gap-3.5">
-                            <div className="w-12 h-12 rounded-full bg-zinc-800 border border-amber-500/30 flex items-center justify-center font-bold text-amber-400">
-                              {barber.avatar}
-                            </div>
-                            <div>
-                              <h3 className="font-semibold text-white">{barber.name}</h3>
-                              <p className="text-xs text-zinc-400">{barber.role} • ⭐ {barber.rating}</p>
-                            </div>
-                          </div>
-                          <ChevronRight className="w-4 h-4 text-zinc-500" />
-                        </button>
-                      ))}
-                    </div>
-                  )}
-
-                  {/* PASSO 3: DATA E HORÁRIO */}
-                  {step === 3 && (
-                    <div className="space-y-4">
-                      <button onClick={() => setStep(2)} className="flex items-center gap-1 text-xs text-zinc-400 hover:text-white">
-                        <ChevronLeft className="w-4 h-4" /> Trocar profissional
-                      </button>
-                      <h2 className="text-lg font-bold text-white">Quando fica melhor?</h2>
-
-                      <div className="grid grid-cols-3 gap-2">
-                        {['Hoje, 19 Nov', 'Amanhã, 20 Nov', 'Sáb, 21 Nov'].map((date) => (
-                          <button
-                            key={date}
-                            onClick={() => setSelectedDate(date)}
-                            className={`p-2.5 rounded-xl text-xs font-medium border text-center transition ${
-                              selectedDate === date
-                                ? 'bg-amber-500 text-zinc-950 border-amber-500 font-bold'
-                                : 'bg-zinc-900 text-zinc-300 border-zinc-800'
-                            }`}
-                          >
-                            {date}
-                          </button>
-                        ))}
-                      </div>
-
-                      <div>
-                        <p className="text-xs text-zinc-400 mb-2.5">Horários disponíveis com {selectedBarber?.name}:</p>
-                        <div className="grid grid-cols-3 gap-2.5">
-                          {['09:00', '10:00', '11:30', '14:00', '15:30', '17:00', '18:30', '19:30'].map((time) => (
-                            <button
-                              key={time}
-                              onClick={() => {
-                                setSelectedTime(time);
-                                setStep(4);
-                              }}
-                              className="py-3 rounded-xl bg-zinc-900 border border-zinc-800 hover:border-amber-500 hover:text-amber-400 font-semibold text-sm transition"
-                            >
-                              {time}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* PASSO 4: CONFIRMAÇÃO */}
-                  {step === 4 && (
-                    <form onSubmit={handleConfirmBooking} className="space-y-4">
-                      <button type="button" onClick={() => setStep(3)} className="flex items-center gap-1 text-xs text-zinc-400 hover:text-white">
-                        <ChevronLeft className="w-4 h-4" /> Alterar horário
-                      </button>
-                      <h2 className="text-lg font-bold text-white">Quase lá! Seus dados</h2>
-
-                      <div className="bg-zinc-900/90 border border-zinc-800 rounded-2xl p-4 space-y-2 text-sm">
-                        <div className="flex justify-between text-zinc-400">
-                          <span>Serviço</span>
-                          <span className="text-white font-medium">{selectedService?.name}</span>
-                        </div>
-                        <div className="flex justify-between text-zinc-400">
-                          <span>Barbeiro</span>
-                          <span className="text-white font-medium">{selectedBarber?.name}</span>
-                        </div>
-                        <div className="flex justify-between text-zinc-400">
-                          <span>Data/Hora</span>
-                          <span className="text-amber-400 font-medium">{selectedDate} • {selectedTime}</span>
-                        </div>
-                        <div className="flex justify-between pt-2 border-t border-zinc-800 font-bold text-base">
-                          <span>Valor</span>
-                          <span className="text-amber-400">R$ {selectedService?.price},00</span>
-                        </div>
-                      </div>
-
-                      <div className="space-y-3">
-                        <div>
-                          <label className="block text-xs text-zinc-400 mb-1">Seu Nome Completo *</label>
-                          <input
-                            type="text"
-                            required
-                            placeholder="Ex: Carlos Eduardo"
-                            value={clientName}
-                            onChange={(e) => setClientName(e.target.value)}
-                            className="w-full px-4 py-3 rounded-xl bg-zinc-900 border border-zinc-800 focus:border-amber-500 focus:outline-none text-white text-sm"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-xs text-zinc-400 mb-1">WhatsApp (para lembretes)</label>
-                          <input
-                            type="tel"
-                            placeholder="(82) 99999-9999"
-                            value={clientPhone}
-                            onChange={(e) => setClientPhone(e.target.value)}
-                            className="w-full px-4 py-3 rounded-xl bg-zinc-900 border border-zinc-800 focus:border-amber-500 focus:outline-none text-white text-sm"
-                          />
-                        </div>
-                      </div>
-
-                      <button
-                        type="submit"
-                        className="w-full py-4 rounded-xl bg-amber-500 hover:bg-amber-400 text-zinc-950 font-bold text-sm shadow-lg shadow-amber-500/20 transition"
-                      >
-                        Confirmar Agendamento
-                      </button>
-                    </form>
-                  )}
-                </>
-              )}
-            </main>
-          </div>
-
-          <footer className="p-4 text-center text-[11px] text-zinc-600 border-t border-zinc-900">
-            Powered by Navalha.io • Sistema de Gestão
-          </footer>
-        </div>
+const BrandLogo = ({ subtitle = 'SaaS Multi-Barbearias' }) => (
+  <div className="flex items-center gap-3 select-none">
+    <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center shadow-lg shadow-amber-500/20 text-zinc-950 font-black">
+      <Scissors className="w-5 h-5" />
+    </div>
+    <div>
+      <div className="flex items-center gap-1.5">
+        <span className="text-lg font-black tracking-tight text-white">NAVALHA</span>
+        <span className="text-xs font-bold px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 border border-amber-500/30">
+          .IO
+        </span>
       </div>
-    );
-  }
+      <p className="text-[11px] text-zinc-400 leading-none mt-0.5">{subtitle}</p>
+    </div>
+  </div>
+);
 
-  // ==========================================
-  // 2. TELA DE LOGIN DA EQUIPE
-  // ==========================================
-  if (view === 'login') {
-    return (
-      <div className="min-h-screen bg-zinc-950 text-zinc-100 flex items-center justify-center p-4">
-        <div className="w-full max-w-sm bg-zinc-900 border border-zinc-800 rounded-2xl p-6 space-y-6">
-          <div className="flex flex-col items-center text-center space-y-2">
-            <BrandLogo size="lg" />
-            <h1 className="text-xl font-bold text-white pt-2">Painel Administrativo</h1>
-            <p className="text-xs text-zinc-400">Acesso exclusivo para gestão e barbeiros</p>
-          </div>
-
-          <div className="space-y-3">
-            <div>
-              <label className="block text-xs text-zinc-400 mb-1">E-mail de Acesso</label>
-              <input
-                type="email"
-                defaultValue="admin@navalha.io"
-                className="w-full px-3.5 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-sm text-white"
-              />
-            </div>
-            <div>
-              <label className="block text-xs text-zinc-400 mb-1">Senha</label>
-              <input
-                type="password"
-                defaultValue="123456"
-                className="w-full px-3.5 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-sm text-white"
-              />
-            </div>
-          </div>
-
-          <div className="space-y-2.5">
-            <button
-              onClick={() => setView('admin')}
-              className="w-full py-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-zinc-950 font-bold text-sm transition"
-            >
-              Entrar no Painel
-            </button>
-            <button
-              onClick={() => setView('client')}
-              className="w-full py-2.5 rounded-xl text-zinc-400 hover:text-white text-xs transition"
-            >
-              ← Voltar para visão do cliente
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // ==========================================
-  // 3. DASHBOARD ADMINISTRATIVO (DONO)
-  // ==========================================
+const StatusBadge = ({ status }) => {
+  const styles = {
+    active: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30',
+    trial: 'bg-amber-500/15 text-amber-400 border-amber-500/30',
+    blocked: 'bg-rose-500/15 text-rose-400 border-rose-500/30',
+  };
+  const labels = {
+    active: 'Ativa',
+    trial: 'Trial 7d',
+    blocked: 'Bloqueada',
+  };
   return (
-    <div className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col md:flex-row pb-20 md:pb-0">
-      {/* Sidebar Desktop */}
-      <aside className="hidden md:flex w-64 bg-zinc-900 border-r border-zinc-800 flex-col justify-between p-5">
-        <div className="space-y-8">
-          <div className="flex items-center gap-3">
-            <BrandLogo size="md" />
-            <div>
-              <span className="font-bold text-lg text-white block leading-none">
-                NAVALHA<span className="text-amber-500">.io</span>
-              </span>
-              <span className="text-[11px] text-zinc-400">Gestão Inteligente</span>
-            </div>
-          </div>
+    <span className={`px-2.5 py-1 rounded-full text-xs font-semibold border ${styles[status] || styles.active}`}>
+      {labels[status] || status}
+    </span>
+  );
+};
 
-          <nav className="space-y-1.5">
-            <button
-              onClick={() => setAdminTab('dashboard')}
-              className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-medium transition ${
-                adminTab === 'dashboard' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' : 'text-zinc-400 hover:bg-zinc-800/50'
-              }`}
-            >
-              <LayoutDashboard className="w-4 h-4" /> Caixa & Agenda
-            </button>
-            <button
-              onClick={() => setAdminTab('reports')}
-              className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-medium transition ${
-                adminTab === 'reports' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' : 'text-zinc-400 hover:bg-zinc-800/50'
-              }`}
-            >
-              <BarChart3 className="w-4 h-4" /> Relatórios & BI
-            </button>
-            <button
-              onClick={() => setAdminTab('settings')}
-              className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-medium transition ${
-                adminTab === 'settings' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' : 'text-zinc-400 hover:bg-zinc-800/50'
-              }`}
-            >
-              <Settings className="w-4 h-4" /> Ajustes
-            </button>
-          </nav>
-        </div>
+// ============================================================================
+// APLICAÇÃO PRINCIPAL
+// ============================================================================
 
-        <button
-          onClick={() => setView('client')}
-          className="flex items-center gap-2 text-xs text-zinc-400 hover:text-red-400 px-3 py-2 rounded-lg transition"
-        >
-          <LogOut className="w-4 h-4" /> Sair para App Cliente
-        </button>
-      </aside>
+export default function App() {
+  // Estados Globais do SaaS
+  const [tenants, setTenants] = useState(INITIAL_TENANTS);
+  const [services, setServices] = useState(INITIAL_SERVICES);
+  const [barbers, setBarbers] = useState(INITIAL_BARBERS);
+  const [appointments, setAppointments] = useState(INITIAL_APPOINTMENTS);
+  const [inventory, setInventory] = useState(INITIAL_INVENTORY);
 
-      {/* Conteúdo Principal Admin */}
-      <div className="flex-1 flex flex-col">
-        {/* Topbar */}
-        <header className="p-4 md:px-8 md:py-5 border-b border-zinc-800 bg-zinc-950/80 backdrop-blur-md flex items-center justify-between sticky top-0 z-20">
-          <div className="flex items-center gap-3">
-            <div className="md:hidden">
-              <BrandLogo size="sm" />
-            </div>
-            <div>
-              <h1 className="text-lg md:text-xl font-bold text-white">
-                {adminTab === 'dashboard' && 'Visão Geral do Dia'}
-                {adminTab === 'reports' && 'Inteligência & Estoque'}
-                {adminTab === 'settings' && 'Configurações da Unidade'}
-              </h1>
-              <p className="text-xs text-zinc-400 hidden sm:block">Quinta-feira, 19 de Novembro</p>
-            </div>
-          </div>
+  // Controle de Sessão e Navegação
+  // session: null (Público) | { role: 'super_admin' } | { role: 'owner', tenantId, impersonating? } | { role: 'barber', tenantId, barberId }
+  const [session, setSession] = useState(null);
+  const [showLoginModal, setShowLoginModal] = useState(false);
+  const [loginEmail, setLoginEmail] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
+  const [loginError, setLoginError] = useState('');
 
-          <button
-            onClick={() => setQuickActionOpen(true)}
-            className="flex items-center gap-2 bg-amber-500 hover:bg-amber-400 text-zinc-950 font-bold text-xs md:text-sm px-4 py-2.5 rounded-xl shadow-lg shadow-amber-500/20 transition"
-          >
-            <Plus className="w-4 h-4" /> Nova Ação
-          </button>
-        </header>
+  // Tenant selecionado na vitrine pública (simula acesso via slug navalha.io/:slug)
+  const [publicTenantId, setPublicTenantId] = useState('tenant-1');
 
-        <main className="p-4 md:p-8 max-w-6xl w-full mx-auto space-y-6">
-          {/* ABA 1: DASHBOARD & AGENDA */}
-          {adminTab === 'dashboard' && (
-            <>
-              {/* KPIs Financeiros */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div className="bg-zinc-900 border border-zinc-800 p-5 rounded-2xl">
-                  <div className="flex items-center justify-between text-zinc-400 text-xs mb-2">
-                    <span>Faturamento Bruto (Hoje)</span>
-                    <DollarSign className="w-4 h-4 text-emerald-400" />
-                  </div>
-                  <div className="text-2xl font-bold text-white">R$ {grossRevenue.toFixed(2)}</div>
-                  <span className="text-[11px] text-emerald-400 flex items-center gap-1 mt-1">
-                    <ArrowUpRight className="w-3 h-3" /> {paidApps.length} atendimentos pagos
-                  </span>
-                </div>
+  // Toast de Feedback
+  const [toast, setToast] = useState(null);
+  const notify = (msg, type = 'success') => {
+    setToast({ msg, type });
+    setTimeout(() => setToast(null), 3500);
+  };
 
-                <div className="bg-zinc-900 border border-zinc-800 p-5 rounded-2xl">
-                  <div className="flex items-center justify-between text-zinc-400 text-xs mb-2">
-                    <span>Comissões Barbeiros</span>
-                    <Users className="w-4 h-4 text-amber-400" />
-                  </div>
-                  <div className="text-2xl font-bold text-amber-400">R$ {totalCommissions.toFixed(2)}</div>
-                  <span className="text-[11px] text-zinc-400 mt-1 block">Repasse automático calculado</span>
-                </div>
+  // ==========================================================================
+  // HANDLERS DE AUTENTICAÇÃO
+  // ==========================================================================
+  const handleQuickLogin = (role, tenantId = null, barberId = null) => {
+    setLoginError('');
+    setShowLoginModal(false);
+    if (role === 'super_admin') {
+      setSession({ role: 'super_admin', name: 'Fundador Navalha.io' });
+      notify('Bem-vindo ao Painel Master (Super Admin)');
+    } else if (role === 'owner') {
+      const t = tenants.find((item) => item.id === tenantId);
+      setSession({ role: 'owner', tenantId, name: t?.ownerName || 'Gestor', impersonating: false });
+      notify(`Acessando painel de ${t?.name}`);
+    } else if (role === 'barber') {
+      const b = barbers.find((item) => item.id === barberId);
+      setSession({ role: 'barber', tenantId: b.tenantId, barberId, name: b.name });
+      notify(`Olá, ${b.name}! Sua agenda está aberta.`);
+    }
+  };
 
-                <div className="bg-zinc-900 border border-zinc-800 p-5 rounded-2xl">
-                  <div className="flex items-center justify-between text-zinc-400 text-xs mb-2">
-                    <span>Lucro Líquido Casa</span>
-                    <TrendingUp className="w-4 h-4 text-sky-400" />
-                  </div>
-                  <div className="text-2xl font-bold text-sky-400">R$ {netProfit.toFixed(2)}</div>
-                  <span className="text-[11px] text-zinc-400 mt-1 block">Livre de comissões</span>
-                </div>
-              </div>
+  const handleFormLogin = (e) => {
+    e.preventDefault();
+    const email = loginEmail.trim().toLowerCase();
+    if (email === 'admin@navalha.io' || email === 'master@navalha.io') {
+      return handleQuickLogin('super_admin');
+    }
+    const ownerTenant = tenants.find((t) => t.ownerEmail.toLowerCase() === email);
+    if (ownerTenant) {
+      return handleQuickLogin('owner', ownerTenant.id);
+    }
+    const barberUser = barbers.find((b) => b.email.toLowerCase() === email);
+    if (barberUser) {
+      return handleQuickLogin('barber', barberUser.tenantId, barberUser.id);
+    }
+    setLoginError('Usuário não encontrado. Use um dos botões de acesso rápido abaixo para testar.');
+  };
 
-              {/* Lista de Agendamentos */}
-              <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden">
-                <div className="p-5 border-b border-zinc-800 flex items-center justify-between">
-                  <h2 className="font-bold text-white flex items-center gap-2">
-                    <Calendar className="w-4 h-4 text-amber-500" /> Agenda de Hoje
-                  </h2>
-                  <span className="text-xs bg-zinc-800 text-zinc-300 px-2.5 py-1 rounded-full">
-                    {appointments.length} horários
-                  </span>
-                </div>
-
-                <div className="divide-y divide-zinc-800/80">
-                  {appointments.map((app) => (
-                    <div key={app.id} className="p-4 md:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-zinc-800/30 transition">
-                      <div className="flex items-start gap-4">
-                        <div className="bg-zinc-950 border border-zinc-800 px-3 py-2 rounded-xl text-center min-w-[68px]">
-                          <span className="text-sm font-bold text-amber-400 block">{app.time}</span>
-                        </div>
-                        <div>
-                          <h3 className="font-semibold text-white">{app.client}</h3>
-                          <p className="text-xs text-zinc-400">{app.service}</p>
-                          <span className="text-[11px] text-zinc-500 mt-0.5 inline-block">
-                            Profissional: <strong className="text-zinc-300">{app.barber}</strong>
-                          </span>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center justify-between sm:justify-end gap-3 pt-2 sm:pt-0 border-t sm:border-t-0 border-zinc-800/60">
-                        <span className="font-bold text-white">R$ {app.price},00</span>
-                        {app.status === 'paid' ? (
-                          <span className="flex items-center gap-1.5 text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-3 py-1.5 rounded-lg">
-                            <Check className="w-3.5 h-3.5" /> Pago ({app.method})
-                          </span>
-                        ) : (
-                          <button
-                            onClick={() => {
-                              setCheckoutItem(app);
-                              setPaymentMethod('Pix');
-                            }}
-                            className="bg-amber-500 hover:bg-amber-400 text-zinc-950 font-bold text-xs px-4 py-2 rounded-lg transition"
-                          >
-                            Cobrar
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </>
-          )}
-
-          {/* ABA 2: RELATÓRIOS, RANKING & ESTOQUE INTELIGENTE */}
-          {adminTab === 'reports' && (
-            <div className="space-y-6">
-              {/* Ranking de Barbeiros */}
-              <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5">
-                <h2 className="font-bold text-white flex items-center gap-2 mb-4">
-                  <Award className="w-5 h-5 text-amber-500" /> Ranking de Performance (Ticket Médio)
-                </h2>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  {barbers.map((barber, index) => (
-                    <div key={barber.id} className="bg-zinc-950 border border-zinc-800 p-4 rounded-xl flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs ${
-                          index === 0 ? 'bg-amber-500 text-zinc-950' : 'bg-zinc-800 text-zinc-300'
-                        }`}>
-                          #{index + 1}
-                        </div>
-                        <div>
-                          <h3 className="font-semibold text-sm text-white">{barber.name}</h3>
-                          <p className="text-xs text-zinc-400">{barber.cuts} cortes no mês</p>
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <span className="text-xs text-zinc-500 block">Ticket Médio</span>
-                        <span className="font-bold text-emerald-400 text-sm">R$ {barber.ticket.toFixed(2)}</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Inteligência de Estoque & Combos */}
-              <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5 space-y-4">
-                <div className="flex items-center justify-between">
-                  <h2 className="font-bold text-white flex items-center gap-2">
-                    <Package className="w-5 h-5 text-amber-500" /> Inteligência de Estoque (Curva A / C)
-                  </h2>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {inventory.map((item) => {
-                    const isLowStock = item.stock <= item.minStock;
-                    const isStagnant = item.daysIdle >= 30;
-
-                    return (
-                      <div key={item.id} className="bg-zinc-950 border border-zinc-800 p-4 rounded-xl space-y-3">
-                        <div className="flex justify-between items-start">
-                          <div>
-                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase ${
-                              item.curve === 'A' ? 'bg-emerald-500/20 text-emerald-400' :
-                              item.curve === 'C' ? 'bg-red-500/20 text-red-400' : 'bg-zinc-800 text-zinc-400'
-                            }`}>
-                              Curva {item.curve}
-                            </span>
-                            <h3 className="font-semibold text-white mt-1">{item.name}</h3>
-                          </div>
-                          <span className="font-bold text-zinc-200">R$ {item.price},00</span>
-                        </div>
-
-                        <div className="flex items-center justify-between text-xs text-zinc-400">
-                          <span>Em estoque: <strong className="text-white">{item.stock} un.</strong></span>
-                          <span>Saídas (15d): <strong className="text-white">{item.sold15d} un.</strong></span>
-                        </div>
-
-                        {isLowStock && (
-                          <div className="bg-amber-500/10 border border-amber-500/20 p-2.5 rounded-lg flex items-center gap-2 text-xs text-amber-300">
-                            <AlertTriangle className="w-4 h-4 shrink-0" />
-                            <span>Alta procura! Repor estoque para evitar ruptura.</span>
-                          </div>
-                        )}
-
-                        {isStagnant && (
-                          <div className="bg-purple-500/10 border border-purple-500/30 p-2.5 rounded-lg flex items-start gap-2 text-xs text-purple-200">
-                            <Sparkles className="w-4 h-4 text-purple-400 shrink-0 mt-0.5" />
-                            <span>
-                              <strong>Sugestão de Combo:</strong> Parado há {item.daysIdle} dias. Ofertar <em>Corte + {item.name}</em> com 20% OFF no produto para girar caixa.
-                            </span>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* ABA 3: AJUSTES */}
-          {adminTab === 'settings' && (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5 space-y-4">
-                <h2 className="font-bold text-white flex items-center gap-2">
-                  <Scissors className="w-4 h-4 text-amber-500" /> Catálogo de Serviços
-                </h2>
-                <div className="space-y-2.5">
-                  {services.map(s => (
-                    <div key={s.id} className="flex items-center justify-between p-3 bg-zinc-950 rounded-xl border border-zinc-800 text-sm">
-                      <div>
-                        <span className="font-medium text-white block">{s.name}</span>
-                        <span className="text-xs text-zinc-500">{s.duration}</span>
-                      </div>
-                      <span className="font-bold text-amber-400">R$ {s.price},00</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5 space-y-4">
-                <h2 className="font-bold text-white flex items-center gap-2">
-                  <Store className="w-4 h-4 text-amber-500" /> Equipe & Comissões
-                </h2>
-                <div className="space-y-2.5">
-                  {barbers.map(b => (
-                    <div key={b.id} className="flex items-center justify-between p-3 bg-zinc-950 rounded-xl border border-zinc-800 text-sm">
-                      <div>
-                        <span className="font-medium text-white block">{b.name}</span>
-                        <span className="text-xs text-zinc-500">{b.role}</span>
-                      </div>
-                      <span className="text-xs font-bold bg-zinc-800 text-emerald-400 px-2.5 py-1 rounded-lg">
-                        Comissão: {b.commission}%
-                      </span>
-                    </div>
-                  ))}
-                </div>
-
-                <button
-                  onClick={() => setView('client')}
-                  className="w-full mt-4 py-3 rounded-xl bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 text-xs font-bold transition"
-                >
-                  Sair da Conta Administrativa
-                </button>
-              </div>
-            </div>
-          )}
-        </main>
-      </div>
-
-      {/* Navegação Inferior Mobile Admin */}
-      <nav className="md:hidden fixed bottom-0 inset-x-0 bg-zinc-900 border-t border-zinc-800 flex justify-around py-2.5 z-30">
-        <button
-          onClick={() => setAdminTab('dashboard')}
-          className={`flex flex-col items-center gap-1 text-[11px] ${adminTab === 'dashboard' ? 'text-amber-400 font-bold' : 'text-zinc-400'}`}
-        >
-          <LayoutDashboard className="w-5 h-5" /> Caixa
-        </button>
-        <button
-          onClick={() => setAdminTab('reports')}
-          className={`flex flex-col items-center gap-1 text-[11px] ${adminTab === 'reports' ? 'text-amber-400 font-bold' : 'text-zinc-400'}`}
-        >
-          <BarChart3 className="w-5 h-5" /> Relatórios
-        </button>
-        <button
-          onClick={() => setAdminTab('settings')}
-          className={`flex flex-col items-center gap-1 text-[11px] ${adminTab === 'settings' ? 'text-amber-400 font-bold' : 'text-zinc-400'}`}
-        >
-          <Settings className="w-5 h-5" /> Ajustes
-        </button>
-      </nav>
-
-      {/* MODAL DE CHECKOUT / PAGAMENTO */}
-      {checkoutItem && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl max-w-md w-full p-6 space-y-5">
-            <div className="flex items-center justify-between">
-              <h3 className="font-bold text-lg text-white">Fechar Conta</h3>
-              <button onClick={() => setCheckoutItem(null)} className="text-zinc-400 hover:text-white">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="bg-zinc-950 p-4 rounded-xl border border-zinc-800 flex justify-between items-center">
-              <div>
-                <p className="font-semibold text-white">{checkoutItem.client}</p>
-                <p className="text-xs text-zinc-400">{checkoutItem.service}</p>
-              </div>
-              <span className="text-xl font-bold text-amber-400">R$ {checkoutItem.price},00</span>
-            </div>
-
-            <div className="grid grid-cols-3 gap-2.5">
-              {[
-                { id: 'Pix', icon: QrCode },
-                { id: 'Cartão', icon: CreditCard },
-                { id: 'Dinheiro', icon: Banknote },
-              ].map((m) => (
-                <button
-                  key={m.id}
-                  onClick={() => setPaymentMethod(m.id)}
-                  className={`p-3 rounded-xl border flex flex-col items-center gap-1.5 text-xs font-semibold transition ${
-                    paymentMethod === m.id
-                      ? 'bg-amber-500/10 border-amber-500 text-amber-400'
-                      : 'bg-zinc-950 border-zinc-800 text-zinc-400'
-                  }`}
-                >
-                  <m.icon className="w-5 h-5" />
-                  {m.id}
-                </button>
-              ))}
-            </div>
-
-            {paymentMethod === 'Pix' && (
-              <div className="bg-white p-4 rounded-xl flex flex-col items-center text-zinc-950 space-y-2">
-                <QrCode className="w-28 h-28 text-zinc-900" />
-                <span className="text-xs font-bold">QR Code Pix Instantâneo (Simulação)</span>
-              </div>
-            )}
-
-            <button
-              onClick={handleFinishPayment}
-              className="w-full py-3.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-zinc-950 font-bold text-sm transition"
-            >
-              Confirmar Recebimento (R$ {checkoutItem.price},00)
-            </button>
-          </div>
+  // ==========================================================================
+  // RENDERIZAÇÃO CONDICIONAL POR PERFIL
+  // ==========================================================================
+  return (
+    <div className="min-h-screen bg-zinc-950 text-zinc-100 font-sans selection:bg-amber-500 selection:text-zinc-950">
+      {/* Notificação Flutuante */}
+      {toast && (
+        <div className="fixed bottom-5 right-5 z-50 flex items-center gap-2.5 px-4 py-3 rounded-xl bg-zinc-900 border border-amber-500/40 shadow-2xl text-sm font-medium text-white animate-bounce">
+          <CheckCircle2 className="w-4 h-4 text-amber-400 shrink-0" />
+          <span>{toast.msg}</span>
         </div>
       )}
 
-      {/* MODAL AÇÃO RÁPIDA (+) */}
-      {quickActionOpen && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl max-w-sm w-full p-5 space-y-4">
-            <div className="flex justify-between items-center">
-              <h3 className="font-bold text-white">Ação Rápida</h3>
-              <button onClick={() => setQuickActionOpen(false)} className="text-zinc-400 hover:text-white">
-                <X className="w-5 h-5" />
+      {/* Faixa de Modo Suporte Master (quando Super Admin entra numa barbearia) */}
+      {session?.impersonating && (
+        <div className="bg-amber-500 text-zinc-950 px-4 py-2 text-xs font-bold flex flex-wrap items-center justify-between gap-2 sticky top-0 z-50">
+          <div className="flex items-center gap-2">
+            <Shield className="w-4 h-4" />
+            <span>
+              MODO SUPORTE MASTER ATIVO — Você está operando o painel de{' '}
+              <u>{tenants.find((t) => t.id === session.tenantId)?.name}</u>
+            </span>
+          </div>
+          <button
+            onClick={() => setSession({ role: 'super_admin', name: 'Fundador Navalha.io' })}
+            className="px-3 py-1 rounded-lg bg-zinc-950 text-amber-400 hover:bg-zinc-900 transition flex items-center gap-1.5"
+          >
+            <ArrowLeft className="w-3.5 h-3.5" />
+            Voltar ao Painel Master
+          </button>
+        </div>
+      )}
+
+      {/* Roteamento de Telas */}
+      {!session && (
+        <PublicBookingView
+          tenants={tenants}
+          publicTenantId={publicTenantId}
+          setPublicTenantId={setPublicTenantId}
+          services={services}
+          barbers={barbers}
+          appointments={appointments}
+          setAppointments={setAppointments}
+          onOpenLogin={() => setShowLoginModal(true)}
+          notify={notify}
+        />
+      )}
+
+      {session?.role === 'super_admin' && (
+        <SuperAdminDashboard
+          tenants={tenants}
+          setTenants={setTenants}
+          barbers={barbers}
+          setBarbers={setBarbers}
+          services={services}
+          setServices={setServices}
+          appointments={appointments}
+          onImpersonate={(tenantId) =>
+            setSession({
+              role: 'owner',
+              tenantId,
+              name: 'Suporte Master',
+              impersonating: true,
+            })
+          }
+          onLogout={() => setSession(null)}
+          notify={notify}
+        />
+      )}
+
+      {(session?.role === 'owner' || session?.role === 'barber') && (
+        <TenantAdminDashboard
+          session={session}
+          tenant={tenants.find((t) => t.id === session.tenantId)}
+          services={services.filter((s) => s.tenantId === session.tenantId)}
+          allServices={services}
+          setServices={setServices}
+          barbers={barbers.filter((b) => b.tenantId === session.tenantId)}
+          allBarbers={barbers}
+          setBarbers={setBarbers}
+          appointments={appointments.filter((a) => a.tenantId === session.tenantId)}
+          allAppointments={appointments}
+          setAppointments={setAppointments}
+          inventory={inventory.filter((i) => i.tenantId === session.tenantId)}
+          setInventory={setInventory}
+          onLogout={() => setSession(null)}
+          notify={notify}
+        />
+      )}
+
+      {/* Modal de Login Unificado */}
+      {showLoginModal && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-md bg-zinc-900 border border-zinc-800 rounded-2xl p-6 shadow-2xl">
+            <div className="flex items-center justify-between mb-6">
+              <BrandLogo subtitle="Acesso Restrito & Gestão" />
+              <button
+                onClick={() => setShowLoginModal(false)}
+                className="p-2 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800"
+              >
+                <XCircle className="w-5 h-5" />
               </button>
             </div>
-            <div className="space-y-2">
+
+            <form onSubmit={handleFormLogin} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-zinc-400 uppercase mb-1.5">
+                  E-mail de Acesso
+                </label>
+                <input
+                  type="email"
+                  value={loginEmail}
+                  onChange={(e) => setLoginEmail(e.target.value)}
+                  placeholder="ex: admin@navalha.io"
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-sm text-white focus:outline-none focus:border-amber-500"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-zinc-400 uppercase mb-1.5">
+                  Senha
+                </label>
+                <input
+                  type="password"
+                  value={loginPassword}
+                  onChange={(e) => setLoginPassword(e.target.value)}
+                  placeholder="••••••••"
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-sm text-white focus:outline-none focus:border-amber-500"
+                />
+              </div>
+
+              {loginError && (
+                <p className="text-xs text-rose-400 bg-rose-500/10 border border-rose-500/20 p-2.5 rounded-lg">
+                  {loginError}
+                </p>
+              )}
+
               <button
-                onClick={() => {
-                  setQuickActionOpen(false);
-                  setView('client');
-                }}
-                className="w-full p-3.5 rounded-xl bg-zinc-950 hover:border-amber-500/50 border border-zinc-800 text-left flex items-center gap-3 text-sm"
+                type="submit"
+                className="w-full py-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-zinc-950 font-bold text-sm transition shadow-lg shadow-amber-500/20"
               >
-                <Calendar className="w-4 h-4 text-amber-400" /> Novo Agendamento Balcão
+                Entrar no Sistema
               </button>
-              <button
-                onClick={() => {
-                  setQuickActionOpen(false);
-                  setAdminTab('reports');
-                }}
-                className="w-full p-3.5 rounded-xl bg-zinc-950 hover:border-amber-500/50 border border-zinc-800 text-left flex items-center gap-3 text-sm"
-              >
-                <ArrowDownRight className="w-4 h-4 text-red-400" /> Registrar Sangria / Despesa
-              </button>
+            </form>
+
+            <div className="mt-6 pt-5 border-t border-zinc-800">
+              <p className="text-[11px] font-bold uppercase tracking-wider text-zinc-500 mb-3 text-center">
+                Acesso Rápido para Demonstração (1 Clique)
+              </p>
+              <div className="space-y-2">
+                <button
+                  onClick={() => handleQuickLogin('super_admin')}
+                  className="w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-300 text-xs font-semibold transition"
+                >
+                  <span className="flex items-center gap-2">
+                    <Crown className="w-4 h-4 text-amber-400" />
+                    Super Admin (Você — Dono do SaaS)
+                  </span>
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+
+                <button
+                  onClick={() => handleQuickLogin('owner', 'tenant-1')}
+                  className="w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl bg-zinc-800/70 hover:bg-zinc-800 border border-zinc-700 text-zinc-200 text-xs font-semibold transition"
+                >
+                  <span className="flex items-center gap-2">
+                    <Store className="w-4 h-4 text-emerald-400" />
+                    Dono Barbearia (Barbearia Viking - Pro)
+                  </span>
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+
+                <button
+                  onClick={() => handleQuickLogin('owner', 'tenant-3')}
+                  className="w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl bg-zinc-800/70 hover:bg-zinc-800 border border-zinc-700 text-zinc-200 text-xs font-semibold transition"
+                >
+                  <span className="flex items-center gap-2">
+                    <Lock className="w-4 h-4 text-rose-400" />
+                    Dono Barbearia (Don Barber - Bloqueada)
+                  </span>
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+
+                <button
+                  onClick={() => handleQuickLogin('barber', 'tenant-1', 'barb-1')}
+                  className="w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl bg-zinc-800/70 hover:bg-zinc-800 border border-zinc-700 text-zinc-200 text-xs font-semibold transition"
+                >
+                  <span className="flex items-center gap-2">
+                    <Scissors className="w-4 h-4 text-sky-400" />
+                    Colaborador (Lucas Silva - Barbeiro)
+                  </span>
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -887,3 +511,1008 @@ export default function App() {
   );
 }
 
+// ============================================================================
+// 1. PAINEL MASTER (SUPER ADMIN — DONO DO PROJETO SAAS)
+// ============================================================================
+
+function SuperAdminDashboard({
+  tenants,
+  setTenants,
+  barbers,
+  setBarbers,
+  services,
+  setServices,
+  appointments,
+  onImpersonate,
+  onLogout,
+  notify,
+}) {
+  const [activeTab, setActiveTab] = useState('tenants'); // tenants | users | plans
+  const [searchTerm, setSearchTerm] = useState('');
+  const [showNewModal, setShowNewModal] = useState(false);
+
+  // Formulário Nova Barbearia / Licença
+  const [newShop, setNewShop] = useState({
+    name: '',
+    slug: '',
+    ownerName: '',
+    ownerEmail: '',
+    phone: '',
+    planId: 'pro',
+    status: 'active',
+  });
+
+  // Métricas Globais do SaaS
+  const metrics = useMemo(() => {
+    const activeCount = tenants.filter((t) => t.status === 'active').length;
+    const trialCount = tenants.filter((t) => t.status === 'trial').length;
+    const blockedCount = tenants.filter((t) => t.status === 'blocked').length;
+    const mrr = tenants
+      .filter((t) => t.status === 'active')
+      .reduce((acc, t) => acc + (PLANS[t.planId]?.price || 0), 0);
+    return { activeCount, trialCount, blockedCount, mrr };
+  }, [tenants]);
+
+  const handleCreateTenant = (e) => {
+    e.preventDefault();
+    if (!newShop.name || !newShop.ownerName || !newShop.ownerEmail) return;
+    const id = `tenant-${Date.now()}`;
+    const generatedSlug =
+      newShop.slug.trim() ||
+      newShop.name
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9]+/g, '-');
+
+    const created = {
+      id,
+      ...newShop,
+      slug: generatedSlug,
+      expiresAt: '2026-12-19',
+      gatewayFeePercent: 3.5,
+    };
+
+    setTenants([created, ...tenants]);
+
+    // Cria serviço inicial padrão para a nova barbearia não começar vazia
+    setServices([
+      ...services,
+      {
+        id: `srv-${Date.now()}`,
+        tenantId: id,
+        name: 'Corte Masculino Padrão',
+        price: 45,
+        duration: 45,
+        category: 'Cabelo',
+        active: true,
+      },
+    ]);
+
+    setNewShop({
+      name: '',
+      slug: '',
+      ownerName: '',
+      ownerEmail: '',
+      phone: '',
+      planId: 'pro',
+      status: 'active',
+    });
+    setShowNewModal(false);
+    notify(`Barbearia "${created.name}" criada e licença ativada!`);
+  };
+
+  const toggleTenantStatus = (tenantId) => {
+    setTenants(
+      tenants.map((t) => {
+        if (t.id !== tenantId) return t;
+        const nextStatus = t.status === 'blocked' ? 'active' : 'blocked';
+        notify(
+          nextStatus === 'blocked'
+            ? `Licença de ${t.name} suspensa imediatamente.`
+            : `Licença de ${t.name} reativada!`
+        );
+        return { ...t, status: nextStatus };
+      })
+    );
+  };
+
+  const changeTenantPlan = (tenantId, newPlanId) => {
+    setTenants(
+      tenants.map((t) => (t.id === tenantId ? { ...t, planId: newPlanId } : t))
+    );
+    notify(`Plano atualizado para ${PLANS[newPlanId].name}.`);
+  };
+
+  const renewLicense = (tenantId) => {
+    setTenants(
+      tenants.map((t) =>
+        t.id === tenantId
+          ? { ...t, status: 'active', expiresAt: '2027-01-19' }
+          : t
+      )
+    );
+    notify('Licença renovada por +30 dias!');
+  };
+
+  const filteredTenants = tenants.filter(
+    (t) =>
+      t.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      t.ownerName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      t.slug.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
+  return (
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6">
+      {/* Header Master */}
+      <header className="flex flex-wrap items-center justify-between gap-4 pb-6 border-b border-zinc-800">
+        <div className="flex items-center gap-4">
+          <BrandLogo subtitle="Console Master • Super Admin" />
+          <span className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-400 text-xs font-bold">
+            <Crown className="w-3.5 h-3.5" /> Dono da Plataforma
+          </span>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowNewModal(true)}
+            className="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-zinc-950 font-bold text-xs sm:text-sm flex items-center gap-2 shadow-lg shadow-amber-500/20 transition"
+          >
+            <Plus className="w-4 h-4" /> Nova Barbearia / Licença
+          </button>
+          <button
+            onClick={onLogout}
+            className="px-3.5 py-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 text-xs sm:text-sm font-semibold flex items-center gap-2 transition"
+          >
+            <LogOut className="w-4 h-4" /> Sair
+          </button>
+        </div>
+      </header>
+
+      {/* KPIs Globais do SaaS */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 my-6">
+        <div className="p-5 rounded-2xl bg-zinc-900/90 border border-zinc-800">
+          <div className="flex items-center justify-between text-zinc-400 text-xs font-semibold mb-2">
+            <span>MRR (Receita Mensal)</span>
+            <DollarSign className="w-4 h-4 text-emerald-400" />
+          </div>
+          <p className="text-2xl sm:text-3xl font-black text-white">
+            R$ {metrics.mrr.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+          </p>
+          <p className="text-xs text-emerald-400 mt-1">Assinaturas ativas recorrentes</p>
+        </div>
+
+        <div className="p-5 rounded-2xl bg-zinc-900/90 border border-zinc-800">
+          <div className="flex items-center justify-between text-zinc-400 text-xs font-semibold mb-2">
+            <span>Barbearias Ativas</span>
+            <Store className="w-4 h-4 text-amber-400" />
+          </div>
+          <p className="text-2xl sm:text-3xl font-black text-white">{metrics.activeCount}</p>
+          <p className="text-xs text-zinc-400 mt-1">Operando sem restrições</p>
+        </div>
+
+        <div className="p-5 rounded-2xl bg-zinc-900/90 border border-zinc-800">
+          <div className="flex items-center justify-between text-zinc-400 text-xs font-semibold mb-2">
+            <span>Em Período Trial</span>
+            <Sparkles className="w-4 h-4 text-sky-400" />
+          </div>
+          <p className="text-2xl sm:text-3xl font-black text-white">{metrics.trialCount}</p>
+          <p className="text-xs text-sky-400 mt-1">Avaliação gratuita 7 dias</p>
+        </div>
+
+        <div className="p-5 rounded-2xl bg-zinc-900/90 border border-zinc-800">
+          <div className="flex items-center justify-between text-zinc-400 text-xs font-semibold mb-2">
+            <span>Licenças Suspensas</span>
+            <Lock className="w-4 h-4 text-rose-400" />
+          </div>
+          <p className="text-2xl sm:text-3xl font-black text-white">{metrics.blockedCount}</p>
+          <p className="text-xs text-rose-400 mt-1">Acesso bloqueado por vencimento</p>
+        </div>
+      </div>
+
+      {/* Navegação Interna Master */}
+      <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
+        <div className="flex gap-2 bg-zinc-900 p-1.5 rounded-xl border border-zinc-800">
+          <button
+            onClick={() => setActiveTab('tenants')}
+            className={`px-4 py-2 rounded-lg text-xs sm:text-sm font-bold transition ${
+              activeTab === 'tenants'
+                ? 'bg-amber-500 text-zinc-950'
+                : 'text-zinc-400 hover:text-white'
+            }`}
+          >
+            Barbearias & Licenças ({tenants.length})
+          </button>
+          <button
+            onClick={() => setActiveTab('users')}
+            className={`px-4 py-2 rounded-lg text-xs sm:text-sm font-bold transition ${
+              activeTab === 'users'
+                ? 'bg-amber-500 text-zinc-950'
+                : 'text-zinc-400 hover:text-white'
+            }`}
+          >
+            Usuários Globais ({tenants.length + barbers.length})
+          </button>
+          <button
+            onClick={() => setActiveTab('plans')}
+            className={`px-4 py-2 rounded-lg text-xs sm:text-sm font-bold transition ${
+              activeTab === 'plans'
+                ? 'bg-amber-500 text-zinc-950'
+                : 'text-zinc-400 hover:text-white'
+            }`}
+          >
+            Tabela de Planos SaaS
+          </button>
+        </div>
+
+        {activeTab === 'tenants' && (
+          <div className="relative w-full sm:w-72">
+            <Search className="w-4 h-4 text-zinc-500 absolute left-3.5 top-3" />
+            <input
+              type="text"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              placeholder="Buscar barbearia, dono ou slug..."
+              className="w-full pl-10 pr-4 py-2 rounded-xl bg-zinc-900 border border-zinc-800 text-sm text-white focus:outline-none focus:border-amber-500"
+            />
+          </div>
+        )}
+      </div>
+
+      {/* ABA 1: BARBEARIAS & LICENÇAS */}
+      {activeTab === 'tenants' && (
+        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="border-b border-zinc-800 bg-zinc-950/60 text-[11px] font-bold uppercase tracking-wider text-zinc-400">
+                  <th className="py-3.5 px-4">Barbearia / Link</th>
+                  <th className="py-3.5 px-4">Responsável</th>
+                  <th className="py-3.5 px-4">Plano Mensal</th>
+                  <th className="py-3.5 px-4">Cadeiras</th>
+                  <th className="py-3.5 px-4">Vencimento</th>
+                  <th className="py-3.5 px-4">Status</th>
+                  <th className="py-3.5 px-4 text-right">Controles Master</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-zinc-800/80 text-sm">
+                {filteredTenants.map((t) => {
+                  const plan = PLANS[t.planId] || PLANS.start;
+                  const activeBarbersCount = barbers.filter(
+                    (b) => b.tenantId === t.id && b.active
+                  ).length;
+
+                  return (
+                    <tr key={t.id} className="hover:bg-zinc-800/30 transition">
+                      <td className="py-4 px-4">
+                        <p className="font-bold text-white">{t.name}</p>
+                        <p className="text-xs text-amber-400/90 font-mono">
+                          navalha.io/{t.slug}
+                        </p>
+                      </td>
+                      <td className="py-4 px-4">
+                        <p className="text-zinc-200 font-medium">{t.ownerName}</p>
+                        <p className="text-xs text-zinc-500">{t.ownerEmail}</p>
+                      </td>
+                      <td className="py-4 px-4">
+                        <select
+                          value={t.planId}
+                          onChange={(e) => changeTenantPlan(t.id, e.target.value)}
+                          className="bg-zinc-950 border border-zinc-700 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-white focus:outline-none focus:border-amber-500"
+                        >
+                          <option value="start">Start — R$ 79/mês</option>
+                          <option value="pro">Pro — R$ 149/mês</option>
+                          <option value="rede">Rede — R$ 249/mês</option>
+                        </select>
+                      </td>
+                      <td className="py-4 px-4">
+                        <span className="text-xs font-bold px-2.5 py-1 rounded-lg bg-zinc-800 text-zinc-200">
+                          {activeBarbersCount} / {plan.maxBarbers === 99 ? '∞' : plan.maxBarbers}
+                        </span>
+                      </td>
+                      <td className="py-4 px-4 text-xs text-zinc-300 font-mono">
+                        {t.expiresAt}
+                      </td>
+                      <td className="py-4 px-4">
+                        <StatusBadge status={t.status} />
+                      </td>
+                      <td className="py-4 px-4 text-right">
+                        <div className="inline-flex items-center gap-2">
+                          <button
+                            onClick={() => onImpersonate(t.id)}
+                            title="Entrar no painel desta barbearia"
+                            className="px-3 py-1.5 rounded-lg bg-amber-500/15 hover:bg-amber-500 text-amber-400 hover:text-zinc-950 border border-amber-500/30 text-xs font-bold transition flex items-center gap-1.5"
+                          >
+                            <Eye className="w-3.5 h-3.5" /> Entrar
+                          </button>
+                          <button
+                            onClick={() => renewLicense(t.id)}
+                            title="Renovar assinatura +30 dias"
+                            className="px-2.5 py-1.5 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-400 border border-emerald-500/30 text-xs font-semibold transition"
+                          >
+                            +30d
+                          </button>
+                          <button
+                            onClick={() => toggleTenantStatus(t.id)}
+                            title={t.status === 'blocked' ? 'Desbloquear licença' : 'Suspender licença'}
+                            className={`p-1.5 rounded-lg border transition ${
+                              t.status === 'blocked'
+                                ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/25'
+                                : 'bg-rose-500/15 text-rose-400 border-rose-500/30 hover:bg-rose-500/25'
+                            }`}
+                          >
+                            {t.status === 'blocked' ? (
+                              <Unlock className="w-4 h-4" />
+                            ) : (
+                              <Lock className="w-4 h-4" />
+                            )}
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* ABA 2: USUÁRIOS GLOBAIS */}
+      {activeTab === 'users' && (
+        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
+          <h3 className="text-base font-bold text-white mb-4">
+            Diretório Global de Contas (Donos & Colaboradores)
+          </h3>
+          <div className="space-y-3">
+            {tenants.map((t) => (
+              <div
+                key={`owner-${t.id}`}
+                className="flex flex-wrap items-center justify-between gap-3 p-3.5 rounded-xl bg-zinc-950 border border-zinc-800"
+              >
+                <div>
+                  <p className="text-sm font-bold text-white">{t.ownerName}</p>
+                  <p className="text-xs text-zinc-400">{t.ownerEmail}</p>
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className="text-xs px-2.5 py-1 rounded-lg bg-zinc-800 text-zinc-300">
+                    {t.name}
+                  </span>
+                  <span className="text-xs font-bold px-2.5 py-1 rounded-full bg-amber-500/15 text-amber-400 border border-amber-500/30">
+                    Dono / Admin
+                  </span>
+                </div>
+              </div>
+            ))}
+
+            {barbers.map((b) => {
+              const shop = tenants.find((t) => t.id === b.tenantId);
+              return (
+                <div
+                  key={`barber-${b.id}`}
+                  className="flex flex-wrap items-center justify-between gap-3 p-3.5 rounded-xl bg-zinc-950 border border-zinc-800"
+                >
+                  <div>
+                    <p className="text-sm font-bold text-white">{b.name}</p>
+                    <p className="text-xs text-zinc-400">{b.email}</p>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className="text-xs px-2.5 py-1 rounded-lg bg-zinc-800 text-zinc-300">
+                      {shop?.name}
+                    </span>
+                    <span className="text-xs font-bold px-2.5 py-1 rounded-full bg-sky-500/15 text-sky-400 border border-sky-500/30">
+                      Colaborador ({b.commissionPercent}%)
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* ABA 3: PLANOS SAAS */}
+      {activeTab === 'plans' && (
+        <div className="grid md:grid-cols-3 gap-6">
+          {Object.values(PLANS).map((plan) => (
+            <div
+              key={plan.id}
+              className="p-6 rounded-2xl bg-zinc-900 border border-zinc-800 flex flex-col justify-between"
+            >
+              <div>
+                <span className="text-xs font-bold uppercase tracking-wider text-amber-400">
+                  Plano {plan.name}
+                </span>
+                <div className="mt-2 flex items-baseline gap-1">
+                  <span className="text-3xl font-black text-white">R$ {plan.price}</span>
+                  <span className="text-xs text-zinc-400">/mês por unidade</span>
+                </div>
+                <p className="text-sm text-zinc-300 mt-3">{plan.label}</p>
+                <ul className="mt-5 space-y-2.5 text-xs text-zinc-400">
+                  <li className="flex items-center gap-2">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                    Link exclusivo de agendamento online
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                    Gestão de escalas e comissões por barbeiro
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                    Limite automático de {plan.maxBarbers === 99 ? 'cadeiras ilimitadas' : `${plan.maxBarbers} cadeiras ativas`}
+                  </li>
+                </ul>
+              </div>
+              <div className="mt-6 pt-4 border-t border-zinc-800 text-xs text-zinc-400">
+                Assinantes atuais:{' '}
+                <strong className="text-white">
+                  {tenants.filter((t) => t.planId === plan.id).length} barbearias
+                </strong>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Modal Criar Nova Barbearia */}
+      {showNewModal && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-lg bg-zinc-900 border border-zinc-800 rounded-2xl p-6 shadow-2xl">
+            <div className="flex items-center justify-between mb-5">
+              <h3 className="text-lg font-bold text-white">Cadastrar Nova Barbearia (Tenant)</h3>
+              <button
+                onClick={() => setShowNewModal(false)}
+                className="text-zinc-400 hover:text-white"
+              >
+                <XCircle className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateTenant} className="space-y-4">
+              <div className="grid sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-semibold text-zinc-400 mb-1">
+                    Nome da Barbearia *
+                  </label>
+                  <input
+                    required
+                    type="text"
+                    value={newShop.name}
+                    onChange={(e) => setNewShop({ ...newShop, name: e.target.value })}
+                    placeholder="Ex: Barbearia Imperial"
+                    className="w-full px-3 py-2 rounded-xl bg-zinc-950 border border-zinc-800 text-sm text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-zinc-400 mb-1">
+                    Slug (URL Personalizada)
+                  </label>
+                  <input
+                    type="text"
+                    value={newShop.slug}
+                    onChange={(e) => setNewShop({ ...newShop, slug: e.target.value })}
+                    placeholder="barbearia-imperial"
+                    className="w-full px-3 py-2 rounded-xl bg-zinc-950 border border-zinc-800 text-sm text-white"
+                  />
+                </div>
+              </div>
+
+              <div className="grid sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-semibold text-zinc-400 mb-1">
+                    Nome do Proprietário *
+                  </label>
+                  <input
+                    required
+                    type="text"
+                    value={newShop.ownerName}
+                    onChange={(e) => setNewShop({ ...newShop, ownerName: e.target.value })}
+                    placeholder="Ex: Thiago Santos"
+                    className="w-full px-3 py-2 rounded-xl bg-zinc-950 border border-zinc-800 text-sm text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-zinc-400 mb-1">
+                    E-mail de Login do Dono *
+                  </label>
+                  <input
+                    required
+                    type="email"
+                    value={newShop.ownerEmail}
+                    onChange={(e) => setNewShop({ ...newShop, ownerEmail: e.target.value })}
+                    placeholder="thiago@imperial.com"
+                    className="w-full px-3 py-2 rounded-xl bg-zinc-950 border border-zinc-800 text-sm text-white"
+                  />
+                </div>
+              </div>
+
+              <div className="grid sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-semibold text-zinc-400 mb-1">
+                    Plano Contratado
+                  </label>
+                  <select
+                    value={newShop.planId}
+                    onChange={(e) => setNewShop({ ...newShop, planId: e.target.value })}
+                    className="w-full px-3 py-2 rounded-xl bg-zinc-950 border border-zinc-800 text-sm text-white"
+                  >
+                    <option value="start">Start — R$ 79/mês (2 cadeiras)</option>
+                    <option value="pro">Pro — R$ 149/mês (6 cadeiras)</option>
+                    <option value="rede">Rede — R$ 249/mês (Ilimitado)</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-zinc-400 mb-1">
+                    Status Inicial da Licença
+                  </label>
+                  <select
+                    value={newShop.status}
+                    onChange={(e) => setNewShop({ ...newShop, status: e.target.value })}
+                    className="w-full px-3 py-2 rounded-xl bg-zinc-950 border border-zinc-800 text-sm text-white"
+                  >
+                    <option value="active">Ativa (Paga)</option>
+                    <option value="trial">Período Trial (7 dias)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-3">
+                <button
+                  type="button"
+                  onClick={() => setShowNewModal(false)}
+                  className="px-4 py-2 rounded-xl bg-zinc-800 text-zinc-300 text-sm font-semibold"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-zinc-950 text-sm font-bold"
+                >
+                  Criar Barbearia & Liberar Acesso
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================================
+// 2. PAINEL INTERNO DA BARBEARIA (DONO DA UNIDADE & COLABORADOR)
+// ============================================================================
+
+function TenantAdminDashboard({
+  session,
+  tenant,
+  services,
+  allServices,
+  setServices,
+  barbers,
+  allBarbers,
+  setBarbers,
+  appointments,
+  allAppointments,
+  setAppointments,
+  inventory,
+  setInventory,
+  onLogout,
+  notify,
+}) {
+  const isOwner = session.role === 'owner';
+  const plan = PLANS[tenant?.planId] || PLANS.start;
+
+  const [tab, setTab] = useState('agenda'); // agenda | team | services | finance | inventory
+  const [showNewApptModal, setShowNewApptModal] = useState(false);
+  const [showNewBarberModal, setShowNewBarberModal] = useState(false);
+  const [showNewServiceModal, setShowNewServiceModal] = useState(false);
+
+  // Estados de formulários internos
+  const [newAppt, setNewAppt] = useState({
+    clientName: '',
+    clientPhone: '',
+    barberId: barbers[0]?.id || '',
+    serviceId: services[0]?.id || '',
+    time: '15:00',
+  });
+
+  const [newBarber, setNewBarber] = useState({
+    name: '',
+    roleTitle: 'Barbeiro',
+    email: '',
+    commissionPercent: 45,
+    workHours: 'Seg a Sáb • 09:00 - 19:00',
+    lunchBreak: '12:00 - 13:00',
+    serviceIds: services.map((s) => s.id),
+  });
+
+  const [newSrv, setNewSrv] = useState({
+    name: '',
+    price: 45,
+    duration: 45,
+    category: 'Cabelo',
+  });
+
+  // Se a licença desta barbearia estiver bloqueada pelo Super Admin:
+  if (tenant?.status === 'blocked') {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-6">
+        <div className="max-w-md w-full bg-zinc-900 border border-rose-500/40 rounded-2xl p-8 text-center shadow-2xl">
+          <div className="w-14 h-14 rounded-2xl bg-rose-500/15 border border-rose-500/30 text-rose-400 flex items-center justify-center mx-auto mb-4">
+            <Lock className="w-7 h-7" />
+          </div>
+          <h2 className="text-xl font-black text-white">Licença Suspensa ou Vencida</h2>
+          <p className="text-sm text-zinc-400 mt-2">
+            O acesso administrativo e o link público de agendamento da unidade{' '}
+            <strong className="text-white">{tenant.name}</strong> estão temporariamente pausados
+            (vencimento: {tenant.expiresAt}).
+          </p>
+          <div className="mt-6 p-4 rounded-xl bg-zinc-950 border border-zinc-800 text-xs text-zinc-300">
+            Entre em contato com o suporte <strong>Navalha.io</strong> para regularizar sua
+            assinatura do plano <strong>{plan.name}</strong>.
+          </div>
+          <button
+            onClick={onLogout}
+            className="mt-6 w-full py-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-white text-sm font-bold transition"
+          >
+            Voltar ao Início
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // Filtra agenda caso seja um barbeiro logado vendo apenas a sua própria cadeira
+  const visibleAppointments = isOwner
+    ? appointments
+    : appointments.filter((a) => a.barberId === session.barberId);
+
+  const visibleBarbers = isOwner
+    ? barbers
+    : barbers.filter((b) => b.id === session.barberId);
+
+  // Concluir atendimento e calcular Split Financeiro (Taxa Gateway -> Comissão Barbeiro -> Líquido Casa)
+  const handleCompleteAppointment = (aptId) => {
+    setAppointments(
+      allAppointments.map((apt) => {
+        if (apt.id !== aptId) return apt;
+        const barber = barbers.find((b) => b.id === apt.barberId);
+        const gross = apt.priceSnapshot;
+        const fee = gross * ((tenant.gatewayFeePercent || 3.5) / 100);
+        const net = Number((gross - fee).toFixed(2));
+        const comm = Number((net * ((barber?.commissionPercent || 50) / 100)).toFixed(2));
+        notify(`Comanda fechada! Comissão de ${barber?.name}: R$ ${comm.toFixed(2)}`);
+        return {
+          ...apt,
+          status: 'completed',
+          netAmount: net,
+          barberCommission: comm,
+          paymentMethod: 'Pix / Cartão',
+        };
+      })
+    );
+  };
+
+  // Criar Encaixe Manual na Agenda
+  const handleCreateAppointment = (e) => {
+    e.preventDefault();
+    const srv = services.find((s) => s.id === newAppt.serviceId);
+    if (!newAppt.clientName || !srv) return;
+    const created = {
+      id: `apt-${Date.now()}`,
+      tenantId: tenant.id,
+      clientName: newAppt.clientName,
+      clientPhone: newAppt.clientPhone || '(82) 99999-0000',
+      barberId: newAppt.barberId || barbers[0]?.id,
+      serviceId: srv.id,
+      date: '2026-11-19',
+      time: newAppt.time,
+      status: 'scheduled',
+      priceSnapshot: srv.price,
+      netAmount: 0,
+      barberCommission: 0,
+      paymentMethod: 'Pendente',
+    };
+    setAppointments([...allAppointments, created]);
+    setNewAppt({ ...newAppt, clientName: '', clientPhone: '' });
+    setShowNewApptModal(false);
+    notify('Encaixe adicionado na agenda!');
+  };
+
+  // Cadastrar Novo Colaborador (respeitando limite do plano SaaS)
+  const handleCreateBarber = (e) => {
+    e.preventDefault();
+    const activeCount = barbers.filter((b) => b.active).length;
+    if (activeCount >= plan.maxBarbers) {
+      notify(
+        `Limite do Plano ${plan.name} atingido (${plan.maxBarbers} cadeiras). Solicite upgrade ao Master.`,
+        'error'
+      );
+      return;
+    }
+    const created = {
+      id: `barb-${Date.now()}`,
+      tenantId: tenant.id,
+      name: newBarber.name,
+      roleTitle: newBarber.roleTitle,
+      email: newBarber.email || `${newBarber.name.toLowerCase().replace(/\s+/g, '')}@barber.com`,
+      commissionPercent: Number(newBarber.commissionPercent),
+      active: true,
+      workHours: newBarber.workHours,
+      lunchBreak: newBarber.lunchBreak,
+      serviceIds: newBarber.serviceIds,
+      rating: 5.0,
+    };
+    setBarbers([...allBarbers, created]);
+    setShowNewBarberModal(false);
+    notify(`Colaborador ${created.name} adicionado à equipe!`);
+  };
+
+  // Alternar atribuição de serviço a um barbeiro específico
+  const toggleBarberService = (barberId, serviceId) => {
+    setBarbers(
+      allBarbers.map((b) => {
+        if (b.id !== barberId) return b;
+        const exists = b.serviceIds.includes(serviceId);
+        const updatedIds = exists
+          ? b.serviceIds.filter((id) => id !== serviceId)
+          : [...b.serviceIds, serviceId];
+        return { ...b, serviceIds: updatedIds };
+      })
+    );
+    notify('Atribuição de serviço atualizada!');
+  };
+
+  // Atualizar comissão individual do barbeiro
+  const updateBarberCommission = (barberId, newPercent) => {
+    setBarbers(
+      allBarbers.map((b) =>
+        b.id === barberId ? { ...b, commissionPercent: Number(newPercent) } : b
+      )
+    );
+  };
+
+  // Adicionar Novo Serviço da Barbearia
+  const handleCreateService = (e) => {
+    e.preventDefault();
+    if (!newSrv.name) return;
+    const created = {
+      id: `srv-${Date.now()}`,
+      tenantId: tenant.id,
+      name: newSrv.name,
+      price: Number(newSrv.price),
+      duration: Number(newSrv.duration),
+      category: newSrv.category,
+      active: true,
+    };
+    setServices([...allServices, created]);
+    setNewSrv({ name: '', price: 45, duration: 45, category: 'Cabelo' });
+    setShowNewServiceModal(false);
+    notify(`Serviço "${created.name}" adicionado ao catálogo!`);
+  };
+
+  // Cálculos Financeiros da Barbearia
+  const finSummary = useMemo(() => {
+    const completed = visibleAppointments.filter((a) => a.status === 'completed');
+    const gross = completed.reduce((acc, a) => acc + a.priceSnapshot, 0);
+    const net = completed.reduce((acc, a) => acc + a.netAmount, 0);
+    const commissions = completed.reduce((acc, a) => acc + a.barberCommission, 0);
+    const shopProfit = Number((net - commissions).toFixed(2));
+    return { gross, net, commissions, shopProfit, count: completed.length };
+  }, [visibleAppointments]);
+
+  return (
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6">
+      {/* Cabeçalho da Barbearia */}
+      <header className="flex flex-wrap items-center justify-between gap-4 pb-6 border-b border-zinc-800">
+        <div>
+          <div className="flex items-center gap-3">
+            <h1 className="text-xl sm:text-2xl font-black text-white">{tenant.name}</h1>
+            <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-500/15 text-amber-400 border border-amber-500/30">
+              Plano {plan.name}
+            </span>
+          </div>
+          <p className="text-xs text-zinc-400 mt-1">
+            Logado como <strong className="text-zinc-200">{session.name}</strong> (
+            {isOwner ? 'Administrador da Unidade' : 'Colaborador'}) • Link público:{' '}
+            <span className="text-amber-400 font-mono">navalha.io/{tenant.slug}</span>
+          </p>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowNewApptModal(true)}
+            className="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-zinc-950 font-bold text-xs sm:text-sm flex items-center gap-2 transition shadow-lg shadow-amber-500/20"
+          >
+            <Plus className="w-4 h-4" /> Novo Encaixe
+          </button>
+          <button
+            onClick={onLogout}
+            className="px-3.5 py-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 text-xs sm:text-sm font-semibold flex items-center gap-2"
+          >
+            <LogOut className="w-4 h-4" /> Sair
+          </button>
+        </div>
+      </header>
+
+      {/* Menu de Módulos Internos */}
+      <nav className="flex gap-2 overflow-x-auto py-5 border-b border-zinc-800/80 mb-6">
+        <button
+          onClick={() => setTab('agenda')}
+          className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-bold whitespace-nowrap flex items-center gap-2 transition ${
+            tab === 'agenda'
+              ? 'bg-amber-500 text-zinc-950'
+              : 'bg-zinc-900 text-zinc-400 hover:text-white border border-zinc-800'
+          }`}
+        >
+          <Calendar className="w-4 h-4" /> Agenda do Dia ({visibleAppointments.length})
+        </button>
+
+        {isOwner && (
+          <>
+            <button
+              onClick={() => setTab('team')}
+              className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-bold whitespace-nowrap flex items-center gap-2 transition ${
+                tab === 'team'
+                  ? 'bg-amber-500 text-zinc-950'
+                  : 'bg-zinc-900 text-zinc-400 hover:text-white border border-zinc-800'
+              }`}
+            >
+              <Users className="w-4 h-4" /> Equipe & Atribuições ({barbers.length}/{plan.maxBarbers === 99 ? '∞' : plan.maxBarbers})
+            </button>
+
+            <button
+              onClick={() => setTab('services')}
+              className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-bold whitespace-nowrap flex items-center gap-2 transition ${
+                tab === 'services'
+                  ? 'bg-amber-500 text-zinc-950'
+                  : 'bg-zinc-900 text-zinc-400 hover:text-white border border-zinc-800'
+              }`}
+            >
+              <Scissors className="w-4 h-4" /> Catálogo de Serviços ({services.length})
+            </button>
+
+            <button
+              onClick={() => setTab('inventory')}
+              className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-bold whitespace-nowrap flex items-center gap-2 transition ${
+                tab === 'inventory'
+                  ? 'bg-amber-500 text-zinc-950'
+                  : 'bg-zinc-900 text-zinc-400 hover:text-white border border-zinc-800'
+              }`}
+            >
+              <Package className="w-4 h-4" /> Estoque Curva A/C
+            </button>
+          </>
+        )}
+
+        <button
+          onClick={() => setTab('finance')}
+          className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-bold whitespace-nowrap flex items-center gap-2 transition ${
+            tab === 'finance'
+              ? 'bg-amber-500 text-zinc-950'
+              : 'bg-zinc-900 text-zinc-400 hover:text-white border border-zinc-800'
+          }`}
+        >
+          <BarChart3 className="w-4 h-4" /> {isOwner ? 'Financeiro & Split' : 'Minhas Comissões'}
+        </button>
+      </nav>
+
+      {/* MÓDULO 1: AGENDA DO DIA (COLUNAS POR CADEIRA) */}
+      {tab === 'agenda' && (
+        <div>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-base font-bold text-white">
+              Quinta-feira, 19/11/2026 — Grade por Colaborador
+            </h2>
+            <span className="text-xs text-zinc-400">
+              Clique em "Concluir & Receber" para calcular o split automático
+            </span>
+          </div>
+
+          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-5">
+            {visibleBarbers.map((barber) => {
+              const barberAppts = visibleAppointments.filter((a) => a.barberId === barber.id);
+              return (
+                <div
+                  key={barber.id}
+                  className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5 flex flex-col"
+                >
+                  <div className="flex items-center justify-between pb-4 border-b border-zinc-800">
+                    <div>
+                      <h3 className="font-bold text-white flex items-center gap-2">
+                        {barber.name}
+                        <span className="text-[11px] px-2 py-0.5 rounded bg-zinc-800 text-amber-400">
+                          {barber.commissionPercent}% com.
+                        </span>
+                      </h3>
+                      <p className="text-xs text-zinc-400 mt-0.5">{barber.workHours}</p>
+                    </div>
+                    <span className="text-xs font-bold px-2.5 py-1 rounded-lg bg-zinc-950 border border-zinc-800 text-zinc-300">
+                      {barberAppts.length} agend.
+                    </span>
+                  </div>
+
+                  <div className="mt-4 space-y-3 flex-1">
+                    {barberAppts.length === 0 ? (
+                      <div className="py-10 text-center text-xs text-zinc-500 border border-dashed border-zinc-800 rounded-xl">
+                        Nenhum cliente agendado nesta cadeira hoje.
+                      </div>
+                    ) : (
+                      barberAppts.map((apt) => {
+                        const srv = services.find((s) => s.id === apt.serviceId);
+                        const isDone = apt.status === 'completed';
+                        return (
+                          <div
+                            key={apt.id}
+                            className={`p-3.5 rounded-xl border transition ${
+                              isDone
+                                ? 'bg-emerald-950/20 border-emerald-500/30'
+                                : 'bg-zinc-950 border-zinc-800'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between">
+                              <span className="text-xs font-black px-2 py-0.5 rounded bg-amber-500/15 text-amber-400">
+                                {apt.time}
+                              </span>
+                              <span className="text-xs font-bold text-white">
+                                R$ {apt.priceSnapshot.toFixed(2)}
+                              </span>
+                            </div>
+                            <p className="text-sm font-bold text-white mt-2">{apt.clientName}</p>
+                            <p className="text-xs text-zinc-400">{srv?.name || 'Serviço'}</p>
+
+                            {isDone ? (
+                              <div className="mt-3 pt-2.5 border-t border-emerald-500/20 flex items-center justify-between text-[11px] text-emerald-400 font-semibold">
+                                <span>Concluído ({apt.paymentMethod})</span>
+                                <span>Comissão: R$ {apt.barberCommission.toFixed(2)}</span>
+                              </div>
+                            ) : (
+                              <button
+                                onClick={() => handleCompleteAppointment(apt.id)}
+                                className="mt-3 w-full py-2 rounded-lg bg-emerald-500/15 hover:bg-emerald-500 text-emerald-400 hover:text-zinc-950 border border-emerald-500/30 text-xs font-bold transition"
+                              >
+                                Concluir & Receber
+                              </button>
+                            )}
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* MÓDULO 2: EQUIPE & ATRIBUIÇÕES (CONFIGURAÇÃO INTERNA DA BARBEARIA) */}
+      {tab === 'team' && isOwner && (
+        <div>
+          <div className="flex flex-wrap items-center justify-between gap-4 mb-5">
+            <div>
+              <h2 className="text-base font-bold text-white">
+                Atribuição de Colaboradores, Comissões e Serviços
+              </h2>
+              <p className="text-xs text-zinc-400 mt-0.5">
+                Seu plano <strong>{plan.name}</strong> permite até{' '}
+                <strong>{plan.maxBarbers === 99 ? 'ilimitadas' : plan.maxBarbers} cadeiras</strong>{' '}
+                ativas simultaneamente.
+              </p>
+            </div>
+            <button
+              onClick={() => setShowNewBarberModal(true)}
+              className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-zinc-950 text-xs font-bold flex items-center gap-2"
+            >
+              <Plus className="w-4 h-4" /> Adicionar Colaborador
+            </button>
+          </div>
+
+          <div className="grid md:grid-cols-2 gap-5">
+            {barbers.map((barber) => (
+              <div
+                key={barber.id}
+                className="p-5 rounded-2xl bg-zinc-900 border border-zinc-800 space-y-4"
+              >
+                <div className="flex items-start justify-between gap-3"></div>
