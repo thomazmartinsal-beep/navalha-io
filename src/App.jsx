@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+﻿import React, { useState, useMemo } from 'react';
 import {
   Scissors, Calendar, Clock, Users, Shield, Crown, CheckCircle2,
   XCircle, AlertTriangle, Plus, DollarSign, Package, BarChart3,
