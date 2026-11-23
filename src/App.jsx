@@ -4,8 +4,8 @@ import {
   XCircle, Plus, Lock, Unlock, LogOut, ArrowLeft,
   Store, Sparkles, Eye, Loader2, DollarSign, Package,
   Trash2, Edit3, Check, TrendingUp, AlertTriangle, ShoppingBag,
-  Link2, ExternalLink, Copy, Clock, Phone, UserCheck, Award,
-  BarChart3, SlidersHorizontal, ChevronRight
+  Link2, ExternalLink, Copy, Clock, Phone,
+  BarChart3, SlidersHorizontal, ChevronRight, MessageCircle, Megaphone, Search, Webhook
 } from 'lucide-react';
 import { supabase } from './supabaseClient';
 
@@ -34,6 +34,20 @@ const TIME_SLOTS = [
   '16:50', '17:30', '18:10', '18:50', '19:30'
 ];
 
+// Formata telefone brasileiro para link oficial wa.me (55 + DDD + número)
+const formatWhatsAppNumber = (rawPhone) => {
+  const digits = (rawPhone || '').replace(/\D/g, '');
+  if (!digits) return '';
+  return digits.startsWith('55') && digits.length >= 12 ? digits : `55${digits}`;
+};
+
+const openWhatsAppMessage = (rawPhone, text) => {
+  const waNumber = formatWhatsAppNumber(rawPhone);
+  if (!waNumber) return;
+  const url = `https://wa.me/${waNumber}?text=${encodeURIComponent(text)}`;
+  window.open(url, '_blank', 'noopener,noreferrer');
+};
+
 export default function App() {
   const [loadingApp, setLoadingApp] = useState(true);
   const [authUser, setAuthUser] = useState(null);
@@ -52,6 +66,7 @@ export default function App() {
   const [services, setServices] = useState([]);
   const [barbers, setBarbers] = useState([]);
   const [appointments, setAppointments] = useState([]);
+  const [clients, setClients] = useState([]);
   const [products, setProducts] = useState([]);
   const [expenses, setExpenses] = useState([]);
   const [productSales, setProductSales] = useState([]);
@@ -81,6 +96,7 @@ export default function App() {
         { data: servicesData },
         { data: barbersData },
         { data: aptData },
+        { data: clientsData },
         { data: productsData },
         { data: expensesData },
         { data: salesData },
@@ -89,6 +105,7 @@ export default function App() {
         supabase.from('services').select('*').eq('active', true).order('name', { ascending: true }),
         supabase.from('barbers').select('*').eq('active', true).order('name', { ascending: true }),
         supabase.from('appointments').select('*').order('date', { ascending: false }),
+        supabase.from('clients').select('*').order('last_visit', { ascending: false }),
         supabase.from('products').select('*').eq('active', true).order('name', { ascending: true }),
         supabase.from('expenses').select('*').order('date', { ascending: false }),
         supabase.from('product_sales').select('*').order('sold_at', { ascending: false }),
@@ -98,6 +115,7 @@ export default function App() {
       setServices(servicesData || []);
       setBarbers(barbersData || []);
       setAppointments(aptData || []);
+      setClients(clientsData || []);
       setProducts(productsData || []);
       setExpenses(expensesData || []);
       setProductSales(salesData || []);
@@ -263,6 +281,7 @@ export default function App() {
             services={services.filter((s) => s.tenant_id === activeTenantId)}
             barbers={barbers.filter((b) => b.tenant_id === activeTenantId)}
             appointments={appointments.filter((a) => a.tenant_id === activeTenantId)}
+            clients={clients.filter((c) => c.tenant_id === activeTenantId)}
             products={products.filter((p) => p.tenant_id === activeTenantId)}
             expenses={expenses.filter((e) => e.tenant_id === activeTenantId)}
             productSales={productSales.filter((s) => s.tenant_id === activeTenantId)}
@@ -283,7 +302,6 @@ export default function App() {
         )}
       </div>
 
-      {/* MODAL DE LOGIN */}
       {showLoginModal && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm overflow-y-auto flex items-center justify-center p-4">
           <div className="w-full max-w-md bg-zinc-900 border border-zinc-800 rounded-3xl p-7 shadow-2xl my-8">
@@ -350,7 +368,7 @@ export default function App() {
 
 /* ============================================================================
    1. PÁGINA EXCLUSIVA DE AGENDAMENTO DA BARBEARIA (/b/slug)
-   Design Mobile-First com Cartões de Serviço, Avatares de Barbeiros e Slots
+   Salva cliente na base CRM + Dispara Webhook WhatsApp (se configurado) + Botão WhatsApp
    ============================================================================ */
 function DedicatedShopBookingPage({ shop, services, barbers, existingAppointments, onAppointmentCreated, notify }) {
   const todayStr = new Date().toISOString().slice(0, 10);
@@ -380,7 +398,6 @@ function DedicatedShopBookingPage({ shop, services, barbers, existingAppointment
   const selectedService = services.find((s) => s.id === selectedServiceId);
   const selectedBarber = barbers.find((b) => b.id === selectedBarberId);
 
-  // Verifica horários já ocupados na data escolhida (para o barbeiro selecionado ou geral se só houver 1)
   const bookedTimesOnDate = existingAppointments
     .filter((a) => a.date === date && (!selectedBarberId || a.barber_id === selectedBarberId))
     .map((a) => a.time?.slice(0, 5));
@@ -390,31 +407,91 @@ function DedicatedShopBookingPage({ shop, services, barbers, existingAppointment
     if (!selectedServiceId || !date || !time || !clientName || !clientPhone) return;
     setSubmitting(true);
 
+    const cleanName = clientName.trim();
+    const cleanPhone = clientPhone.trim();
+    const phoneDigits = cleanPhone.replace(/\D/g, '');
+
+    // 1. Insere o agendamento
     const { error } = await supabase.from('appointments').insert({
       tenant_id: shop.id,
       service_id: selectedServiceId,
       barber_id: selectedBarberId || null,
-      client_name: clientName.trim(),
-      client_phone: clientPhone.trim(),
+      client_name: cleanName,
+      client_phone: cleanPhone,
       date,
       time,
       price_snapshot: selectedService?.price || 0,
       status: 'scheduled',
     });
 
-    setSubmitting(false);
     if (error) {
+      setSubmitting(false);
       notify('Erro ao agendar: ' + error.message);
       return;
     }
 
+    // 2. Salva ou atualiza o cliente na base CRM da barbearia (para campanhas de promoção)
+    if (phoneDigits) {
+      const { data: existingClient } = await supabase
+        .from('clients')
+        .select('id, total_visits')
+        .eq('tenant_id', shop.id)
+        .eq('phone_clean', phoneDigits)
+        .maybeSingle();
+
+      if (existingClient) {
+        await supabase
+          .from('clients')
+          .update({
+            name: cleanName,
+            phone: cleanPhone,
+            total_visits: (existingClient.total_visits || 0) + 1,
+            last_visit: date,
+          })
+          .eq('id', existingClient.id);
+      } else {
+        await supabase.from('clients').insert({
+          tenant_id: shop.id,
+          name: cleanName,
+          phone: cleanPhone,
+          phone_clean: phoneDigits,
+          total_visits: 1,
+          last_visit: date,
+        });
+      }
+    }
+
+    // 3. Se a barbearia tiver um Webhook de WhatsApp configurado (Evolution API / Z-API / Make / n8n), dispara automaticamente
+    if (shop.whatsapp_webhook_url) {
+      try {
+        fetch(shop.whatsapp_webhook_url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            event: 'appointment.created',
+            barbershop_name: shop.name,
+            client_name: cleanName,
+            client_phone: formatWhatsAppNumber(cleanPhone),
+            service_name: selectedService?.name,
+            barber_name: selectedBarber?.name || 'Equipe',
+            date,
+            time,
+            price: selectedService?.price,
+            message: `Olá ${cleanName}! Seu agendamento na *${shop.name}* está confirmado:\n✂️ *Serviço:* ${selectedService?.name}\n💈 *Profissional:* ${selectedBarber?.name || 'Primeiro disponível'}\n📅 *Data:* ${date} às *${time}*\n💰 *Valor:* R$ ${Number(selectedService?.price || 0).toFixed(2)}`,
+          }),
+        }).catch(() => {});
+      } catch (_) {}
+    }
+
+    setSubmitting(false);
     setBookingConfirmed({
       serviceName: selectedService?.name,
       barberName: selectedBarber?.name || 'Primeiro profissional disponível',
       price: selectedService?.price,
       date,
       time,
-      clientName,
+      clientName: cleanName,
+      clientPhone: cleanPhone,
     });
     setClientName('');
     setClientPhone('');
@@ -422,9 +499,14 @@ function DedicatedShopBookingPage({ shop, services, barbers, existingAppointment
     onAppointmentCreated();
   };
 
+  const handleSendReceiptToShopWhatsApp = () => {
+    if (!bookingConfirmed || !shop.owner_phone) return;
+    const msg = `Olá *${shop.name}*! Acabei de agendar pelo site:\n\n👤 *Cliente:* ${bookingConfirmed.clientName}\n✂️ *Serviço:* ${bookingConfirmed.serviceName}\n💈 *Profissional:* ${bookingConfirmed.barberName}\n📅 *Data:* ${bookingConfirmed.date} às *${bookingConfirmed.time}*\n💰 *Valor:* R$ ${Number(bookingConfirmed.price).toFixed(2)}`;
+    openWhatsAppMessage(shop.owner_phone, msg);
+  };
+
   return (
     <div className="max-w-2xl mx-auto px-4 py-6 sm:py-10">
-      {/* Banner Superior Exclusivo da Barbearia */}
       <div className="bg-gradient-to-br from-zinc-900 via-zinc-900 to-zinc-950 border border-zinc-800/90 rounded-3xl p-6 mb-6 shadow-2xl relative overflow-hidden">
         <div className="absolute -right-10 -top-10 w-40 h-40 rounded-full bg-amber-500/10 blur-2xl pointer-events-none" />
         <div className="flex flex-wrap items-center justify-between gap-4 relative z-10">
@@ -433,12 +515,10 @@ function DedicatedShopBookingPage({ shop, services, barbers, existingAppointment
             badge="AGENDAMENTO"
             subtitle="Reserva Online • Confirmação Imediata"
           />
-          <div className="flex items-center gap-2">
-            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-bold">
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-              Agenda Aberta
-            </span>
-          </div>
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-bold">
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+            Agenda Aberta
+          </span>
         </div>
 
         {shop.owner_phone && (
@@ -483,16 +563,25 @@ function DedicatedShopBookingPage({ shop, services, barbers, existingAppointment
             </div>
           </div>
 
-          <button
-            onClick={() => setBookingConfirmed(null)}
-            className="w-full sm:w-auto px-6 py-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-zinc-950 font-black text-xs transition"
-          >
-            Realizar Outro Agendamento
-          </button>
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
+            {shop.owner_phone && (
+              <button
+                onClick={handleSendReceiptToShopWhatsApp}
+                className="w-full sm:w-auto px-6 py-3.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-zinc-950 font-black text-xs transition flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/20"
+              >
+                <MessageCircle className="w-4 h-4" /> Enviar Comprovante no WhatsApp
+              </button>
+            )}
+            <button
+              onClick={() => setBookingConfirmed(null)}
+              className="w-full sm:w-auto px-6 py-3.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-white font-bold text-xs transition"
+            >
+              Fazer Outro Agendamento
+            </button>
+          </div>
         </div>
       ) : (
         <form onSubmit={handleBook} className="space-y-6">
-          {/* ETAPA 1: SERVIÇOS */}
           <div className="bg-zinc-900/80 backdrop-blur border border-zinc-800 rounded-3xl p-5 sm:p-6">
             <div className="flex items-center gap-2.5 mb-4">
               <span className="w-6 h-6 rounded-lg bg-amber-500 text-zinc-950 font-black text-xs flex items-center justify-center">
@@ -539,7 +628,6 @@ function DedicatedShopBookingPage({ shop, services, barbers, existingAppointment
             )}
           </div>
 
-          {/* ETAPA 2: PROFISSIONAL */}
           <div className="bg-zinc-900/80 backdrop-blur border border-zinc-800 rounded-3xl p-5 sm:p-6">
             <div className="flex items-center gap-2.5 mb-4">
               <span className="w-6 h-6 rounded-lg bg-amber-500 text-zinc-950 font-black text-xs flex items-center justify-center">
@@ -569,12 +657,7 @@ function DedicatedShopBookingPage({ shop, services, barbers, existingAppointment
 
               {barbers.map((b) => {
                 const selected = selectedBarberId === b.id;
-                const initials = b.name
-                  .split(' ')
-                  .map((n) => n[0])
-                  .slice(0, 2)
-                  .join('')
-                  .toUpperCase();
+                const initials = b.name.split(' ').map((n) => n[0]).slice(0, 2).join('').toUpperCase();
                 return (
                   <button
                     type="button"
@@ -599,7 +682,6 @@ function DedicatedShopBookingPage({ shop, services, barbers, existingAppointment
             </div>
           </div>
 
-          {/* ETAPA 3: DATA E GRADE DE HORÁRIOS */}
           <div className="bg-zinc-900/80 backdrop-blur border border-zinc-800 rounded-3xl p-5 sm:p-6">
             <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
               <div className="flex items-center gap-2.5">
@@ -643,13 +725,12 @@ function DedicatedShopBookingPage({ shop, services, barbers, existingAppointment
             </div>
           </div>
 
-          {/* ETAPA 4: SEUS DADOS E CONFIRMAÇÃO */}
           <div className="bg-zinc-900/80 backdrop-blur border border-zinc-800 rounded-3xl p-5 sm:p-6">
             <div className="flex items-center gap-2.5 mb-4">
               <span className="w-6 h-6 rounded-lg bg-amber-500 text-zinc-950 font-black text-xs flex items-center justify-center">
                 4
               </span>
-              <h2 className="font-black text-sm uppercase tracking-wider text-white">Seus Dados</h2>
+              <h2 className="font-black text-sm uppercase tracking-wider text-white">Seus Dados (WhatsApp)</h2>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-5">
@@ -665,7 +746,7 @@ function DedicatedShopBookingPage({ shop, services, barbers, existingAppointment
                 />
               </div>
               <div>
-                <label className="block text-[11px] font-bold uppercase text-zinc-400 mb-1">WhatsApp</label>
+                <label className="block text-[11px] font-bold uppercase text-zinc-400 mb-1">WhatsApp com DDD</label>
                 <input
                   type="text"
                   required
@@ -711,7 +792,7 @@ function DedicatedShopBookingPage({ shop, services, barbers, existingAppointment
 }
 
 /* ============================================================================
-   2. PORTAL INSTITUCIONAL (HOME RAIZ: DARK & GOLD LUXURY)
+   2. PORTAL INSTITUCIONAL
    ============================================================================ */
 function PlatformHomePortal({ onOpenLogin }) {
   return (
@@ -738,7 +819,7 @@ function PlatformHomePortal({ onOpenLogin }) {
           de agendamento.
         </h1>
         <p className="text-zinc-400 text-sm sm:text-base mt-6 max-w-xl mx-auto leading-relaxed">
-          Cada unidade ganha sua própria página personalizada para a bio do Instagram, enquanto o proprietário acompanha faturamento mensal, comissões e estoque em tempo real.
+          Cada unidade ganha sua própria página personalizada para a bio do Instagram, base automática de clientes para promoções no WhatsApp e fechamento financeiro mensal.
         </p>
 
         <div className="mt-9 flex flex-wrap items-center justify-center gap-3">
@@ -762,20 +843,20 @@ function PlatformHomePortal({ onOpenLogin }) {
           </div>
           <div className="p-5 rounded-3xl bg-zinc-900/70 backdrop-blur border border-zinc-800/90 hover:border-amber-500/30 transition">
             <div className="w-10 h-10 rounded-xl bg-amber-500/15 text-amber-400 flex items-center justify-center mb-3">
-              <TrendingUp className="w-5 h-5" />
+              <Megaphone className="w-5 h-5" />
             </div>
-            <h3 className="font-bold text-sm text-white">Rendimento & Comissões</h3>
+            <h3 className="font-bold text-sm text-white">Base CRM & WhatsApp</h3>
             <p className="text-xs text-zinc-400 mt-1.5 leading-relaxed">
-              Fechamento mensal automático com cálculo de repasse individual por profissional.
+              Lista automática de clientes com histórico de visitas para disparar promoções em 1 clique.
             </p>
           </div>
           <div className="p-5 rounded-3xl bg-zinc-900/70 backdrop-blur border border-zinc-800/90 hover:border-amber-500/30 transition">
             <div className="w-10 h-10 rounded-xl bg-amber-500/15 text-amber-400 flex items-center justify-center mb-3">
-              <Package className="w-5 h-5" />
+              <TrendingUp className="w-5 h-5" />
             </div>
-            <h3 className="font-bold text-sm text-white">Estoque & Revenda</h3>
+            <h3 className="font-bold text-sm text-white">Financeiro & Estoque</h3>
             <p className="text-xs text-zinc-400 mt-1.5 leading-relaxed">
-              Controle de produtos com alerta de reposição e venda rápida no balcão.
+              Apuração automática de rendimento mensal, comissões por barbeiro e revenda de produtos.
             </p>
           </div>
         </div>
@@ -974,7 +1055,7 @@ function SuperAdminConsole({ tenants, onRefresh, onImpersonate, onCopyLink, onLo
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-zinc-400 uppercase mb-1">WhatsApp</label>
+                  <label className="block text-xs font-bold text-zinc-400 uppercase mb-1">WhatsApp da Loja</label>
                   <input
                     type="text"
                     value={ownerPhone}
@@ -1046,8 +1127,8 @@ function SuperAdminConsole({ tenants, onRefresh, onImpersonate, onCopyLink, onLo
 }
 
 /* ============================================================================
-   4. PAINEL EXECUTIVO DO DONO DA BARBEARIA
-   Com KPIs no Topo, Gráfico Financeiro e Editor de Link Personalizado
+   4. PAINEL EXECUTIVO DO DONO DA BARBEARIA (6 ABAS: AGENDA, CLIENTES & PROMOÇÕES,
+      SERVIÇOS, BARBEIROS, FINANCEIRO E ESTOQUE)
    ============================================================================ */
 function OwnerDashboardShell({
   profile,
@@ -1055,6 +1136,7 @@ function OwnerDashboardShell({
   services,
   barbers,
   appointments,
+  clients,
   products,
   expenses,
   productSales,
@@ -1065,9 +1147,19 @@ function OwnerDashboardShell({
 }) {
   const [activeTab, setActiveTab] = useState('agenda');
 
-  // Editor de Link Exclusivo (Slug)
+  // Editor de Link e Webhook WhatsApp
   const [editingSlug, setEditingSlug] = useState(false);
   const [customSlug, setCustomSlug] = useState(tenant?.slug || '');
+  const [webhookUrl, setWebhookUrl] = useState(tenant?.whatsapp_webhook_url || '');
+  const [showWebhookConfig, setShowWebhookConfig] = useState(false);
+
+  // Estados da Aba Clientes & Promoções
+  const [clientSearch, setClientSearch] = useState('');
+  const [promoTemplate, setPromoTemplate] = useState(
+    `Fala {nome}! Tudo certo? Passando para avisar que estamos com horários especiais essa semana aqui na ${tenant?.name || 'barbearia'}. Garanta seu horário pelo link: ${window.location.origin}/b/${tenant?.slug || ''}`
+  );
+  const [newClientName, setNewClientName] = useState('');
+  const [newClientPhone, setNewClientPhone] = useState('');
 
   const [srvName, setSrvName] = useState('');
   const [srvPrice, setSrvPrice] = useState('');
@@ -1120,6 +1212,65 @@ function OwnerDashboardShell({
     setEditingSlug(false);
     notify(`Link atualizado para /b/${cleanSlug}`);
     onRefresh();
+  };
+
+  const handleSaveWebhook = async (e) => {
+    e.preventDefault();
+    await supabase
+      .from('tenants')
+      .update({ whatsapp_webhook_url: webhookUrl.trim() || null })
+      .eq('id', tenant.id);
+    setShowWebhookConfig(false);
+    notify('Configuração de Webhook WhatsApp salva!');
+    onRefresh();
+  };
+
+  // --- AÇÕES DE CLIENTES & PROMOÇÕES ---
+  const handleAddClientManual = async (e) => {
+    e.preventDefault();
+    const digits = newClientPhone.replace(/\D/g, '');
+    if (!newClientName || !digits) return;
+
+    const { error } = await supabase.from('clients').upsert(
+      {
+        tenant_id: tenant.id,
+        name: newClientName.trim(),
+        phone: newClientPhone.trim(),
+        phone_clean: digits,
+        total_visits: 1,
+        last_visit: todayStr,
+      },
+      { onConflict: 'tenant_id,phone_clean' }
+    );
+
+    if (error) {
+      notify('Erro ao salvar cliente: ' + error.message);
+      return;
+    }
+
+    setNewClientName('');
+    setNewClientPhone('');
+    notify('Cliente adicionado à base!');
+    onRefresh();
+  };
+
+  const handleDeleteClient = async (id) => {
+    await supabase.from('clients').delete().eq('id', id);
+    notify('Cliente removido da lista.');
+    onRefresh();
+  };
+
+  const handleSendPromoWhatsApp = (client) => {
+    const firstName = client.name.split(' ')[0];
+    const personalizedText = promoTemplate.replace(/\{nome\}/gi, firstName);
+    openWhatsAppMessage(client.phone, personalizedText);
+  };
+
+  const handleConfirmAppointmentWhatsApp = (apt) => {
+    const srv = services.find((s) => s.id === apt.service_id);
+    const brb = barbers.find((b) => b.id === apt.barber_id);
+    const msg = `Olá *${apt.client_name}*! Aqui é da *${tenant.name}* 💈\n\nConfirmando seu horário:\n✂️ *Serviço:* ${srv?.name || 'Atendimento'}\n👤 *Profissional:* ${brb?.name || 'Equipe'}\n📅 *Data:* ${apt.date} às *${apt.time?.slice(0, 5)}*\n\nTe aguardamos!`;
+    openWhatsAppMessage(apt.client_phone, msg);
   };
 
   const updateAppointmentStatus = async (aptId, nextStatus) => {
@@ -1310,9 +1461,14 @@ function OwnerDashboardShell({
 
   const maxChartVal = Math.max(grossRevenue, totalCommissions, totalExpenses, Math.abs(netProfit), 1);
 
+  const filteredClients = clients.filter(
+    (c) =>
+      c.name.toLowerCase().includes(clientSearch.toLowerCase()) ||
+      c.phone.includes(clientSearch)
+  );
+
   return (
     <div className="max-w-6xl mx-auto px-4 py-6">
-      {/* HEADER EXECUTIVO */}
       <header className="flex flex-wrap items-center justify-between gap-4 p-4 rounded-3xl bg-zinc-900/80 backdrop-blur border border-zinc-800">
         <BrandLogo title={tenant.name} badge="GESTÃO" subtitle={`Proprietário: ${profile?.full_name || tenant.owner_name}`} />
 
@@ -1348,6 +1504,17 @@ function OwnerDashboardShell({
               >
                 <SlidersHorizontal className="w-3.5 h-3.5" />
               </button>
+              <button
+                onClick={() => { setWebhookUrl(tenant.whatsapp_webhook_url || ''); setShowWebhookConfig(!showWebhookConfig); }}
+                className={`p-2 rounded-xl border transition ${
+                  tenant.whatsapp_webhook_url
+                    ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-400'
+                    : 'bg-zinc-950 border-zinc-800 text-zinc-400 hover:text-white'
+                }`}
+                title="Configurar Automação WhatsApp (Webhook)"
+              >
+                <Webhook className="w-3.5 h-3.5" />
+              </button>
               <a
                 href={`/b/${tenant.slug}`}
                 target="_blank"
@@ -1369,7 +1536,28 @@ function OwnerDashboardShell({
         </div>
       </header>
 
-      {/* CARDS DE INDICADORES RÁPIDOS (KPIs) */}
+      {/* PAINEL EXPANSÍVEL DE WEBHOOK WHATSAPP AUTOMÁTICO */}
+      {showWebhookConfig && (
+        <form onSubmit={handleSaveWebhook} className="mt-4 p-4 rounded-2xl bg-zinc-900 border border-emerald-500/30 flex flex-wrap items-center gap-3">
+          <div className="flex-1 min-w-[240px]">
+            <p className="text-xs font-bold text-emerald-400 flex items-center gap-1.5 mb-1">
+              <Webhook className="w-3.5 h-3.5" /> Disparo Automático no WhatsApp (Opcional via Evolution API / Z-API / Make / n8n)
+            </p>
+            <input
+              type="url"
+              value={webhookUrl}
+              onChange={(e) => setWebhookUrl(e.target.value)}
+              placeholder="Cole aqui a URL do seu Webhook (ex: https://seu-n8n.com/webhook/navalha)"
+              className="w-full px-3.5 py-2 rounded-xl bg-zinc-950 border border-zinc-800 text-xs text-white"
+            />
+          </div>
+          <button type="submit" className="px-4 py-2.5 rounded-xl bg-emerald-500 text-zinc-950 font-black text-xs">
+            Salvar Webhook
+          </button>
+        </form>
+      )}
+
+      {/* KPIs RÁPIDOS */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 my-5">
         <div className="p-4 rounded-2xl bg-zinc-900/70 border border-zinc-800/90">
           <div className="flex items-center justify-between text-zinc-400 text-xs">
@@ -1382,16 +1570,16 @@ function OwnerDashboardShell({
 
         <div className="p-4 rounded-2xl bg-zinc-900/70 border border-zinc-800/90">
           <div className="flex items-center justify-between text-zinc-400 text-xs">
-            <span>Faturamento ({selectedMonth})</span>
-            <DollarSign className="w-4 h-4 text-amber-400" />
+            <span>Base de Clientes</span>
+            <MessageCircle className="w-4 h-4 text-emerald-400" />
           </div>
-          <p className="text-2xl font-black text-white mt-1.5">R$ {grossRevenue.toFixed(0)}</p>
-          <p className="text-[11px] text-zinc-500 mt-0.5">serviços + produtos</p>
+          <p className="text-2xl font-black text-white mt-1.5">{clients.length}</p>
+          <p className="text-[11px] text-zinc-500 mt-0.5">contatos salvos para promoções</p>
         </div>
 
         <div className="p-4 rounded-2xl bg-zinc-900/70 border border-emerald-500/25">
           <div className="flex items-center justify-between text-emerald-400 text-xs font-semibold">
-            <span>Lucro Líquido</span>
+            <span>Lucro Líquido ({selectedMonth})</span>
             <TrendingUp className="w-4 h-4" />
           </div>
           <p className={`text-2xl font-black mt-1.5 ${netProfit >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
@@ -1412,10 +1600,11 @@ function OwnerDashboardShell({
         </div>
       </div>
 
-      {/* MENU DE NAVEGAÇÃO EM ABAS */}
+      {/* MENU DE NAVEGAÇÃO EM 6 ABAS */}
       <nav className="flex flex-wrap gap-2 mb-6">
         {[
           { id: 'agenda', label: `Agenda (${appointments.length})`, icon: Calendar },
+          { id: 'clientes', label: `Clientes & Promoções (${clients.length})`, icon: Megaphone },
           { id: 'servicos', label: `Serviços (${services.length})`, icon: Scissors },
           { id: 'barbeiros', label: `Barbeiros (${barbers.length})`, icon: Users },
           { id: 'financeiro', label: 'Financeiro Mensal', icon: BarChart3 },
@@ -1440,7 +1629,7 @@ function OwnerDashboardShell({
         })}
       </nav>
 
-      {/* ABA 1: AGENDA */}
+      {/* ABA 1: AGENDA COM BOTÃO DIRETO DE CONFIRMAÇÃO NO WHATSAPP */}
       {activeTab === 'agenda' && (
         <div className="bg-zinc-900/80 backdrop-blur border border-zinc-800 rounded-3xl p-6">
           <div className="flex flex-wrap items-center justify-between gap-2 mb-5">
@@ -1449,7 +1638,7 @@ function OwnerDashboardShell({
                 <Calendar className="w-4 h-4 text-amber-400" /> Agendamentos da Barbearia
               </h2>
               <p className="text-xs text-zinc-400 mt-0.5">
-                Conclua os atendimentos finalizados para contabilizar no rendimento mensal
+                Envie confirmação direta no WhatsApp do cliente ou conclua o corte para somar no financeiro
               </p>
             </div>
           </div>
@@ -1491,7 +1680,15 @@ function OwnerDashboardShell({
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        onClick={() => handleConfirmAppointmentWhatsApp(a)}
+                        className="px-3 py-1.5 rounded-xl bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 text-xs font-bold hover:bg-emerald-500/25 transition inline-flex items-center gap-1.5"
+                        title="Enviar confirmação no WhatsApp do cliente"
+                      >
+                        <MessageCircle className="w-3.5 h-3.5" /> WhatsApp
+                      </button>
+
                       <span className="px-3 py-1.5 rounded-xl bg-zinc-900 border border-zinc-800 text-amber-400 text-xs font-black">
                         R$ {Number(a.price_snapshot).toFixed(2)}
                       </span>
@@ -1500,7 +1697,7 @@ function OwnerDashboardShell({
                         <>
                           <button
                             onClick={() => updateAppointmentStatus(a.id, 'completed')}
-                            className="px-3.5 py-1.5 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-xs font-bold hover:bg-emerald-500/30 transition"
+                            className="px-3.5 py-1.5 rounded-xl bg-amber-500 text-zinc-950 text-xs font-black hover:bg-amber-400 transition"
                           >
                             Concluir
                           </button>
@@ -1531,7 +1728,132 @@ function OwnerDashboardShell({
         </div>
       )}
 
-      {/* ABA 2: SERVIÇOS */}
+      {/* ABA 2: BASE DE CLIENTES & CAMPANHAS PROMOCIONAIS NO WHATSAPP */}
+      {activeTab === 'clientes' && (
+        <div className="space-y-6">
+          {/* EDITOR DE MENSAGEM PROMOCIONAL */}
+          <div className="bg-zinc-900/80 backdrop-blur border border-amber-500/30 rounded-3xl p-6">
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+              <div>
+                <h2 className="font-black text-base text-white flex items-center gap-2">
+                  <Megaphone className="w-4 h-4 text-amber-400" /> Campanha Promocional via WhatsApp
+                </h2>
+                <p className="text-xs text-zinc-400 mt-0.5">
+                  Personalize o texto abaixo (use <strong>{'{nome}'}</strong> para inserir automaticamente o nome de cada cliente) e clique em <strong>Enviar Promoção</strong> na lista
+                </p>
+              </div>
+            </div>
+
+            <textarea
+              rows={3}
+              value={promoTemplate}
+              onChange={(e) => setPromoTemplate(e.target.value)}
+              className="w-full p-3.5 rounded-2xl bg-zinc-950 border border-zinc-800 text-xs text-zinc-200 focus:border-amber-500 focus:outline-none"
+            />
+          </div>
+
+          {/* LISTA DE CLIENTES CADASTRADOS AUTOMATICAMENTE */}
+          <div className="bg-zinc-900/80 backdrop-blur border border-zinc-800 rounded-3xl p-6">
+            <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
+              <div>
+                <h3 className="font-black text-base text-white">
+                  Carteira de Clientes ({clients.length})
+                </h3>
+                <p className="text-xs text-zinc-400 mt-0.5">
+                  Alimentada automaticamente a cada agendamento realizado no seu link exclusivo
+                </p>
+              </div>
+
+              <div className="relative w-full sm:w-64">
+                <Search className="w-4 h-4 text-zinc-500 absolute left-3.5 top-2.5" />
+                <input
+                  type="text"
+                  placeholder="Buscar por nome ou telefone..."
+                  value={clientSearch}
+                  onChange={(e) => setClientSearch(e.target.value)}
+                  className="w-full pl-9 pr-3.5 py-2 rounded-xl bg-zinc-950 border border-zinc-800 text-xs text-white focus:border-amber-500 focus:outline-none"
+                />
+              </div>
+            </div>
+
+            {/* Cadastro manual rápido caso queira adicionar cliente antigo */}
+            <form onSubmit={handleAddClientManual} className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 mb-6">
+              <input
+                type="text"
+                required
+                placeholder="Nome do cliente"
+                value={newClientName}
+                onChange={(e) => setNewClientName(e.target.value)}
+                className="px-3.5 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-xs text-white"
+              />
+              <input
+                type="text"
+                required
+                placeholder="WhatsApp (ex: 82 99999-9999)"
+                value={newClientPhone}
+                onChange={(e) => setNewClientPhone(e.target.value)}
+                className="px-3.5 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-xs text-white"
+              />
+              <button
+                type="submit"
+                className="py-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-amber-400 font-bold text-xs flex items-center justify-center gap-1.5 transition"
+              >
+                <Plus className="w-4 h-4" /> Adicionar Cliente Manualmente
+              </button>
+            </form>
+
+            {filteredClients.length === 0 ? (
+              <p className="text-sm text-zinc-400 py-8 text-center border border-dashed border-zinc-800 rounded-2xl">
+                Nenhum cliente encontrado. Assim que alguém agendar pelo seu link, aparecerá aqui automaticamente.
+              </p>
+            ) : (
+              <div className="overflow-x-auto border border-zinc-800 rounded-2xl">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-zinc-950 border-b border-zinc-800 text-zinc-400 uppercase tracking-wider text-[11px]">
+                    <tr>
+                      <th className="py-3.5 px-4">Cliente</th>
+                      <th className="py-3.5 px-4">WhatsApp</th>
+                      <th className="py-3.5 px-4">Frequência</th>
+                      <th className="py-3.5 px-4">Último Agendamento</th>
+                      <th className="py-3.5 px-4 text-right">Disparo Direto</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-zinc-800/80 bg-zinc-950/60">
+                    {filteredClients.map((c) => (
+                      <tr key={c.id} className="hover:bg-zinc-900/50">
+                        <td className="py-3.5 px-4 font-bold text-white text-sm">{c.name}</td>
+                        <td className="py-3.5 px-4 text-zinc-300 font-medium">{c.phone}</td>
+                        <td className="py-3.5 px-4">
+                          <span className="px-2.5 py-1 rounded-lg bg-amber-500/15 text-amber-400 font-bold">
+                            {c.total_visits} {c.total_visits === 1 ? 'visita' : 'visitas'}
+                          </span>
+                        </td>
+                        <td className="py-3.5 px-4 text-zinc-400">{c.last_visit || '—'}</td>
+                        <td className="py-3.5 px-4 text-right space-x-2">
+                          <button
+                            onClick={() => handleSendPromoWhatsApp(c)}
+                            className="px-3.5 py-2 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-bold inline-flex items-center gap-1.5 hover:bg-emerald-500/30 transition"
+                          >
+                            <MessageCircle className="w-3.5 h-3.5" /> Enviar Promoção
+                          </button>
+                          <button
+                            onClick={() => handleDeleteClient(c.id)}
+                            className="p-2 rounded-xl bg-zinc-900 text-rose-400 hover:bg-rose-500/20 transition"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ABA 3: SERVIÇOS */}
       {activeTab === 'servicos' && (
         <div className="bg-zinc-900/80 backdrop-blur border border-zinc-800 rounded-3xl p-6">
           <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
@@ -1643,7 +1965,7 @@ function OwnerDashboardShell({
         </div>
       )}
 
-      {/* ABA 3: BARBEIROS */}
+      {/* ABA 4: BARBEIROS */}
       {activeTab === 'barbeiros' && (
         <div className="bg-zinc-900/80 backdrop-blur border border-zinc-800 rounded-3xl p-6">
           <h2 className="font-black text-base text-white mb-4 flex items-center gap-2">
@@ -1723,7 +2045,7 @@ function OwnerDashboardShell({
         </div>
       )}
 
-      {/* ABA 4: FINANCEIRO MENSAL COM GRÁFICO COMPARATIVO */}
+      {/* ABA 5: FINANCEIRO MENSAL */}
       {activeTab === 'financeiro' && (
         <div className="space-y-6">
           <div className="flex flex-wrap items-center justify-between gap-3 bg-zinc-900/80 backdrop-blur border border-zinc-800 rounded-3xl p-5">
@@ -1746,7 +2068,6 @@ function OwnerDashboardShell({
             </div>
           </div>
 
-          {/* GRÁFICO VISUAL DE COMPOSIÇÃO DO MÊS */}
           <div className="bg-zinc-900/80 backdrop-blur border border-zinc-800 rounded-3xl p-6">
             <h3 className="font-bold text-xs uppercase tracking-wider text-zinc-400 mb-5">
               Comparativo Financeiro ({selectedMonth})
@@ -1840,7 +2161,7 @@ function OwnerDashboardShell({
         </div>
       )}
 
-      {/* ABA 5: ESTOQUE */}
+      {/* ABA 6: ESTOQUE */}
       {activeTab === 'estoque' && (
         <div className="bg-zinc-900/80 backdrop-blur border border-zinc-800 rounded-3xl p-6">
           <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
