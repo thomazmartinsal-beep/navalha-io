@@ -4,28 +4,35 @@ import {
   XCircle, Plus, Lock, Unlock, LogOut, ArrowLeft,
   Store, Sparkles, Eye, Loader2, DollarSign, Package,
   Trash2, Edit3, Check, TrendingUp, AlertTriangle, ShoppingBag,
-  Link2, ExternalLink, Copy
+  Link2, ExternalLink, Copy, Clock, Phone, UserCheck, Award,
+  BarChart3, SlidersHorizontal, ChevronRight
 } from 'lucide-react';
 import { supabase } from './supabaseClient';
 
-const BrandLogo = ({ title = 'NAVALHA', badge = '.IO', subtitle = 'Gestão e Agendamento Inteligente' }) => (
+const BrandLogo = ({ title = 'NAVALHA', badge = '.IO', subtitle = 'Gestão & Agendamento Inteligente' }) => (
   <div className="flex items-center gap-3 select-none">
-    <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center shadow-lg shadow-amber-500/20 text-zinc-950 font-black">
+    <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-300 via-amber-500 to-amber-600 flex items-center justify-center shadow-lg shadow-amber-500/25 text-zinc-950 font-black ring-1 ring-amber-300/40">
       <Scissors className="w-5 h-5" />
     </div>
     <div>
       <div className="flex items-center gap-1.5">
         <span className="text-lg font-black tracking-tight text-white uppercase">{title}</span>
         {badge && (
-          <span className="text-xs font-bold px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 border border-amber-500/30">
+          <span className="text-[10px] font-extrabold tracking-wider px-2 py-0.5 rounded-md bg-amber-500/15 text-amber-400 border border-amber-500/30">
             {badge}
           </span>
         )}
       </div>
-      <p className="text-[11px] text-zinc-400 leading-none mt-0.5">{subtitle}</p>
+      <p className="text-[11px] text-zinc-400 leading-none mt-1">{subtitle}</p>
     </div>
   </div>
 );
+
+const TIME_SLOTS = [
+  '09:00', '09:40', '10:20', '11:00', '11:40',
+  '13:30', '14:10', '14:50', '15:30', '16:10',
+  '16:50', '17:30', '18:10', '18:50', '19:30'
+];
 
 export default function App() {
   const [loadingApp, setLoadingApp] = useState(true);
@@ -33,7 +40,6 @@ export default function App() {
   const [profile, setProfile] = useState(null);
   const [impersonatedTenantId, setImpersonatedTenantId] = useState(null);
 
-  // Detecta se a URL acessada é um link exclusivo de barbearia: /b/slug-da-barbearia
   const [publicSlug, setPublicSlug] = useState(() => {
     const path = window.location.pathname;
     if (path.startsWith('/b/')) {
@@ -149,7 +155,6 @@ export default function App() {
       setShowLoginModal(false);
       setEmail('');
       setPassword('');
-      // Garante que saia da rota pública /b/ ao entrar no painel
       if (publicSlug) {
         window.history.pushState({}, '', '/');
         setPublicSlug(null);
@@ -171,31 +176,37 @@ export default function App() {
 
   if (loadingApp) {
     return (
-      <div className="min-h-screen bg-zinc-950 text-zinc-200 flex items-center justify-center gap-3">
-        <Loader2 className="w-6 h-6 text-amber-400 animate-spin" />
-        <span className="text-sm font-semibold">Carregando...</span>
+      <div className="min-h-screen bg-zinc-950 text-zinc-200 flex flex-col items-center justify-center gap-3">
+        <div className="w-12 h-12 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center">
+          <Loader2 className="w-6 h-6 text-amber-400 animate-spin" />
+        </div>
+        <span className="text-xs font-bold uppercase tracking-widest text-zinc-400">Carregando sistema...</span>
       </div>
     );
   }
 
-  // ROTA EXCLUSIVA DO CLIENTE FINAL: /b/nome-da-barbearia
+  // ROTA EXCLUSIVA DO CLIENTE FINAL: /b/slug-da-barbearia
   if (publicSlug) {
     const shop = tenants.find((t) => t.slug === publicSlug && t.status !== 'blocked');
     return (
-      <div className="min-h-screen bg-zinc-950 text-zinc-100 font-sans">
+      <div className="min-h-screen bg-zinc-950 text-zinc-100 font-sans relative overflow-x-hidden">
+        <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-amber-500/10 via-zinc-950 to-zinc-950" />
         {toast && (
-          <div className="fixed bottom-5 right-5 z-50 flex items-center gap-2.5 px-4 py-3 rounded-xl bg-zinc-900 border border-amber-500/40 shadow-2xl text-sm font-medium text-white">
+          <div className="fixed bottom-5 right-5 z-50 flex items-center gap-2.5 px-4 py-3 rounded-xl bg-zinc-900/95 backdrop-blur border border-amber-500/40 shadow-2xl text-sm font-medium text-white">
             <CheckCircle2 className="w-4 h-4 text-amber-400 shrink-0" />
             <span>{toast}</span>
           </div>
         )}
-        <DedicatedShopBookingPage
-          shop={shop}
-          services={shop ? services.filter((s) => s.tenant_id === shop.id) : []}
-          barbers={shop ? barbers.filter((b) => b.tenant_id === shop.id) : []}
-          onAppointmentCreated={() => loadPlatformData(authUser)}
-          notify={notify}
-        />
+        <div className="relative z-10">
+          <DedicatedShopBookingPage
+            shop={shop}
+            services={shop ? services.filter((s) => s.tenant_id === shop.id) : []}
+            barbers={shop ? barbers.filter((b) => b.tenant_id === shop.id) : []}
+            existingAppointments={shop ? appointments.filter((a) => a.tenant_id === shop.id && a.status !== 'cancelled') : []}
+            onAppointmentCreated={() => loadPlatformData(authUser)}
+            notify={notify}
+          />
+        </div>
       </div>
     );
   }
@@ -204,82 +215,83 @@ export default function App() {
   const activeTenant = tenants.find((t) => t.id === activeTenantId);
 
   return (
-    <div className="min-h-screen bg-zinc-950 text-zinc-100 font-sans">
+    <div className="min-h-screen bg-zinc-950 text-zinc-100 font-sans relative overflow-x-hidden">
+      <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-amber-500/5 via-zinc-950 to-zinc-950" />
+
       {toast && (
-        <div className="fixed bottom-5 right-5 z-50 flex items-center gap-2.5 px-4 py-3 rounded-xl bg-zinc-900 border border-amber-500/40 shadow-2xl text-sm font-medium text-white">
+        <div className="fixed bottom-5 right-5 z-50 flex items-center gap-2.5 px-4 py-3 rounded-xl bg-zinc-900/95 backdrop-blur border border-amber-500/40 shadow-2xl text-sm font-medium text-white">
           <CheckCircle2 className="w-4 h-4 text-amber-400 shrink-0" />
           <span>{toast}</span>
         </div>
       )}
 
       {impersonatedTenantId && (
-        <div className="bg-amber-500 text-zinc-950 px-4 py-2 text-xs font-bold flex items-center justify-between sticky top-0 z-50">
+        <div className="bg-gradient-to-r from-amber-500 to-amber-400 text-zinc-950 px-4 py-2.5 text-xs font-extrabold flex items-center justify-between sticky top-0 z-50 shadow-lg">
           <span className="flex items-center gap-2">
             <Shield className="w-4 h-4" />
             MODO SUPER ADMIN — Gerenciando: {activeTenant?.name}
           </span>
           <button
             onClick={() => setImpersonatedTenantId(null)}
-            className="px-3 py-1 rounded-lg bg-zinc-950 text-amber-400 flex items-center gap-1"
+            className="px-3 py-1 rounded-lg bg-zinc-950 text-amber-400 flex items-center gap-1 hover:bg-zinc-900 transition"
           >
             <ArrowLeft className="w-3.5 h-3.5" /> Voltar ao Console Master
           </button>
         </div>
       )}
 
-      {/* ROTA INSTITUCIONAL / LOGIN (Sem listar outras barbearias nem agendamento misturado) */}
-      {!authUser && (
-        <PlatformHomePortal onOpenLogin={() => { setAuthError(''); setShowLoginModal(true); }} />
-      )}
+      <div className="relative z-10">
+        {!authUser && (
+          <PlatformHomePortal onOpenLogin={() => { setAuthError(''); setShowLoginModal(true); }} />
+        )}
 
-      {/* ROTA SUPER ADMIN */}
-      {authUser && profile?.role === 'super_admin' && !impersonatedTenantId && (
-        <SuperAdminConsole
-          tenants={tenants}
-          onRefresh={() => loadPlatformData(authUser)}
-          onImpersonate={(id) => setImpersonatedTenantId(id)}
-          onCopyLink={copyBookingLink}
-          onLogout={handleLogout}
-          notify={notify}
-        />
-      )}
+        {authUser && profile?.role === 'super_admin' && !impersonatedTenantId && (
+          <SuperAdminConsole
+            tenants={tenants}
+            onRefresh={() => loadPlatformData(authUser)}
+            onImpersonate={(id) => setImpersonatedTenantId(id)}
+            onCopyLink={copyBookingLink}
+            onLogout={handleLogout}
+            notify={notify}
+          />
+        )}
 
-      {/* ROTA PAINEL DO DONO DA BARBEARIA */}
-      {authUser && (profile?.role === 'owner' || profile?.role === 'barber' || impersonatedTenantId) && (
-        <OwnerDashboardShell
-          profile={profile}
-          tenant={activeTenant}
-          services={services.filter((s) => s.tenant_id === activeTenantId)}
-          barbers={barbers.filter((b) => b.tenant_id === activeTenantId)}
-          appointments={appointments.filter((a) => a.tenant_id === activeTenantId)}
-          products={products.filter((p) => p.tenant_id === activeTenantId)}
-          expenses={expenses.filter((e) => e.tenant_id === activeTenantId)}
-          productSales={productSales.filter((s) => s.tenant_id === activeTenantId)}
-          onCopyLink={() => activeTenant && copyBookingLink(activeTenant.slug)}
-          onRefresh={() => loadPlatformData(authUser)}
-          onLogout={handleLogout}
-          notify={notify}
-        />
-      )}
+        {authUser && (profile?.role === 'owner' || profile?.role === 'barber' || impersonatedTenantId) && (
+          <OwnerDashboardShell
+            profile={profile}
+            tenant={activeTenant}
+            services={services.filter((s) => s.tenant_id === activeTenantId)}
+            barbers={barbers.filter((b) => b.tenant_id === activeTenantId)}
+            appointments={appointments.filter((a) => a.tenant_id === activeTenantId)}
+            products={products.filter((p) => p.tenant_id === activeTenantId)}
+            expenses={expenses.filter((e) => e.tenant_id === activeTenantId)}
+            productSales={productSales.filter((s) => s.tenant_id === activeTenantId)}
+            onCopyLink={() => activeTenant && copyBookingLink(activeTenant.slug)}
+            onRefresh={() => loadPlatformData(authUser)}
+            onLogout={handleLogout}
+            notify={notify}
+          />
+        )}
 
-      {authUser && !profile && !impersonatedTenantId && (
-        <div className="min-h-screen flex flex-col items-center justify-center p-4 text-center">
-          <p className="text-zinc-300 font-semibold mb-4">Carregando permissões da conta...</p>
-          <button onClick={handleLogout} className="px-4 py-2 rounded-xl bg-amber-500 text-zinc-950 font-bold text-sm">
-            Sair e tentar novamente
-          </button>
-        </div>
-      )}
+        {authUser && !profile && !impersonatedTenantId && (
+          <div className="min-h-screen flex flex-col items-center justify-center p-4 text-center">
+            <p className="text-zinc-300 font-semibold mb-4">Carregando permissões da conta...</p>
+            <button onClick={handleLogout} className="px-4 py-2 rounded-xl bg-amber-500 text-zinc-950 font-bold text-sm">
+              Sair e tentar novamente
+            </button>
+          </div>
+        )}
+      </div>
 
-      {/* MODAL DE LOGIN ADMINISTRATIVO */}
+      {/* MODAL DE LOGIN */}
       {showLoginModal && (
-        <div className="fixed inset-0 z-50 bg-black/85 overflow-y-auto flex items-center justify-center p-4">
-          <div className="w-full max-w-md bg-zinc-900 border border-zinc-800 rounded-2xl p-6 shadow-2xl my-8">
-            <div className="flex items-center justify-between mb-5">
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm overflow-y-auto flex items-center justify-center p-4">
+          <div className="w-full max-w-md bg-zinc-900 border border-zinc-800 rounded-3xl p-7 shadow-2xl my-8">
+            <div className="flex items-center justify-between mb-6">
               <BrandLogo subtitle="Acesso Restrito • Parceiros e Admin" />
               <button
                 onClick={() => setShowLoginModal(false)}
-                className="p-2 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800"
+                className="p-2 rounded-xl text-zinc-400 hover:text-white hover:bg-zinc-800 transition"
               >
                 <XCircle className="w-5 h-5" />
               </button>
@@ -287,7 +299,7 @@ export default function App() {
 
             <form onSubmit={handleLogin} className="space-y-4">
               <div>
-                <label className="block text-xs font-semibold text-zinc-400 uppercase mb-1">
+                <label className="block text-xs font-bold text-zinc-400 uppercase tracking-wider mb-1.5">
                   E-mail de Acesso
                 </label>
                 <input
@@ -296,12 +308,12 @@ export default function App() {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="seuemail@dominio.com"
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-sm text-white focus:outline-none focus:border-amber-500"
+                  className="w-full px-4 py-3 rounded-xl bg-zinc-950 border border-zinc-800 text-sm text-white focus:outline-none focus:border-amber-500 transition"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-zinc-400 uppercase mb-1">
+                <label className="block text-xs font-bold text-zinc-400 uppercase tracking-wider mb-1.5">
                   Senha
                 </label>
                 <input
@@ -310,12 +322,12 @@ export default function App() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••"
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-sm text-white focus:outline-none focus:border-amber-500"
+                  className="w-full px-4 py-3 rounded-xl bg-zinc-950 border border-zinc-800 text-sm text-white focus:outline-none focus:border-amber-500 transition"
                 />
               </div>
 
               {authError && (
-                <p className="text-xs text-rose-400 bg-rose-500/10 border border-rose-500/20 p-2.5 rounded-lg">
+                <p className="text-xs text-rose-400 bg-rose-500/10 border border-rose-500/20 p-3 rounded-xl">
                   {authError}
                 </p>
               )}
@@ -323,7 +335,7 @@ export default function App() {
               <button
                 type="submit"
                 disabled={authLoading}
-                className="w-full py-3 rounded-xl bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-zinc-950 font-bold text-sm transition flex items-center justify-center gap-2"
+                className="w-full py-3.5 rounded-xl bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 disabled:opacity-50 text-zinc-950 font-black text-sm transition flex items-center justify-center gap-2 shadow-lg shadow-amber-500/20"
               >
                 {authLoading && <Loader2 className="w-4 h-4 animate-spin" />}
                 <span>Entrar no Painel</span>
@@ -337,13 +349,14 @@ export default function App() {
 }
 
 /* ============================================================================
-   1. PÁGINA EXCLUSIVA DE AGENDAMENTO DA BARBEARIA (/b/slug-da-barbearia)
-   Totalmente isolada: sem lista de outras lojas e sem botões de painel
+   1. PÁGINA EXCLUSIVA DE AGENDAMENTO DA BARBEARIA (/b/slug)
+   Design Mobile-First com Cartões de Serviço, Avatares de Barbeiros e Slots
    ============================================================================ */
-function DedicatedShopBookingPage({ shop, services, barbers, onAppointmentCreated, notify }) {
+function DedicatedShopBookingPage({ shop, services, barbers, existingAppointments, onAppointmentCreated, notify }) {
+  const todayStr = new Date().toISOString().slice(0, 10);
   const [selectedServiceId, setSelectedServiceId] = useState('');
   const [selectedBarberId, setSelectedBarberId] = useState('');
-  const [date, setDate] = useState('');
+  const [date, setDate] = useState(todayStr);
   const [time, setTime] = useState('');
   const [clientName, setClientName] = useState('');
   const [clientPhone, setClientPhone] = useState('');
@@ -353,12 +366,12 @@ function DedicatedShopBookingPage({ shop, services, barbers, onAppointmentCreate
   if (!shop) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center p-6 text-center">
-        <div className="w-14 h-14 rounded-2xl bg-zinc-900 border border-zinc-800 flex items-center justify-center text-amber-400 mb-4">
-          <Store className="w-7 h-7" />
+        <div className="w-16 h-16 rounded-2xl bg-zinc-900 border border-zinc-800 flex items-center justify-center text-amber-400 mb-4 shadow-xl">
+          <Store className="w-8 h-8" />
         </div>
-        <h1 className="text-xl font-black text-white">Barbearia não encontrada</h1>
+        <h1 className="text-2xl font-black text-white">Barbearia não encontrada</h1>
         <p className="text-sm text-zinc-400 max-w-md mt-2">
-          Verifique se o link de agendamento digitado está correto ou entre em contato com a barbearia.
+          O link acessado não corresponde a nenhuma unidade ativa. Solicite o link oficial diretamente à barbearia.
         </p>
       </div>
     );
@@ -366,6 +379,11 @@ function DedicatedShopBookingPage({ shop, services, barbers, onAppointmentCreate
 
   const selectedService = services.find((s) => s.id === selectedServiceId);
   const selectedBarber = barbers.find((b) => b.id === selectedBarberId);
+
+  // Verifica horários já ocupados na data escolhida (para o barbeiro selecionado ou geral se só houver 1)
+  const bookedTimesOnDate = existingAppointments
+    .filter((a) => a.date === date && (!selectedBarberId || a.barber_id === selectedBarberId))
+    .map((a) => a.time?.slice(0, 5));
 
   const handleBook = async (e) => {
     e.preventDefault();
@@ -405,263 +423,373 @@ function DedicatedShopBookingPage({ shop, services, barbers, onAppointmentCreate
   };
 
   return (
-    <div className="max-w-2xl mx-auto px-4 py-8">
-      {/* Cabeçalho exclusivo com a identidade da Barbearia */}
-      <header className="flex items-center justify-between pb-6 border-b border-zinc-800/80">
-        <BrandLogo
-          title={shop.name}
-          badge="AGENDAMENTO"
-          subtitle={shop.owner_phone ? `WhatsApp: ${shop.owner_phone}` : 'Reserva Online 24h'}
-        />
-      </header>
+    <div className="max-w-2xl mx-auto px-4 py-6 sm:py-10">
+      {/* Banner Superior Exclusivo da Barbearia */}
+      <div className="bg-gradient-to-br from-zinc-900 via-zinc-900 to-zinc-950 border border-zinc-800/90 rounded-3xl p-6 mb-6 shadow-2xl relative overflow-hidden">
+        <div className="absolute -right-10 -top-10 w-40 h-40 rounded-full bg-amber-500/10 blur-2xl pointer-events-none" />
+        <div className="flex flex-wrap items-center justify-between gap-4 relative z-10">
+          <BrandLogo
+            title={shop.name}
+            badge="AGENDAMENTO"
+            subtitle="Reserva Online • Confirmação Imediata"
+          />
+          <div className="flex items-center gap-2">
+            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-bold">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+              Agenda Aberta
+            </span>
+          </div>
+        </div>
+
+        {shop.owner_phone && (
+          <div className="mt-4 pt-4 border-t border-zinc-800/80 flex items-center gap-4 text-xs text-zinc-400">
+            <span className="inline-flex items-center gap-1.5">
+              <Phone className="w-3.5 h-3.5 text-amber-400" /> {shop.owner_phone}
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <Sparkles className="w-3.5 h-3.5 text-amber-400" /> Sem taxa de reserva
+            </span>
+          </div>
+        )}
+      </div>
 
       {bookingConfirmed ? (
-        <div className="bg-zinc-900 border border-emerald-500/30 rounded-2xl p-6 mt-8 text-center">
-          <div className="w-12 h-12 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center mx-auto mb-3">
-            <CheckCircle2 className="w-6 h-6" />
+        <div className="bg-zinc-900 border border-emerald-500/30 rounded-3xl p-7 text-center shadow-2xl">
+          <div className="w-16 h-16 rounded-2xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 flex items-center justify-center mx-auto mb-4">
+            <CheckCircle2 className="w-8 h-8" />
           </div>
-          <h2 className="text-xl font-black text-white">Horário Reservado com Sucesso!</h2>
-          <p className="text-sm text-zinc-400 mt-1">
-            Olá, <strong className="text-white">{bookingConfirmed.clientName}</strong>. Seu atendimento na{' '}
-            <strong className="text-amber-400">{shop.name}</strong> está confirmado.
+          <h2 className="text-2xl font-black text-white">Horário Confirmado!</h2>
+          <p className="text-sm text-zinc-400 mt-1.5">
+            Tudo certo, <strong className="text-white">{bookingConfirmed.clientName}</strong>. Te esperamos na{' '}
+            <strong className="text-amber-400">{shop.name}</strong>.
           </p>
 
-          <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-4 my-5 text-left text-xs space-y-2">
-            <div className="flex justify-between">
-              <span className="text-zinc-400">Serviço:</span>
-              <span className="font-bold text-white">{bookingConfirmed.serviceName}</span>
+          <div className="bg-zinc-950 border border-zinc-800 rounded-2xl p-5 my-6 text-left text-xs space-y-3">
+            <div className="flex justify-between items-center">
+              <span className="text-zinc-400">Serviço escolhido</span>
+              <span className="font-bold text-white text-sm">{bookingConfirmed.serviceName}</span>
             </div>
-            <div className="flex justify-between">
-              <span className="text-zinc-400">Profissional:</span>
+            <div className="flex justify-between items-center">
+              <span className="text-zinc-400">Profissional</span>
               <span className="font-bold text-white">{bookingConfirmed.barberName}</span>
             </div>
-            <div className="flex justify-between">
-              <span className="text-zinc-400">Data e Horário:</span>
+            <div className="flex justify-between items-center">
+              <span className="text-zinc-400">Data e Horário</span>
               <span className="font-bold text-amber-400">{bookingConfirmed.date} às {bookingConfirmed.time}</span>
             </div>
-            <div className="flex justify-between">
-              <span className="text-zinc-400">Valor:</span>
-              <span className="font-bold text-emerald-400">R$ {Number(bookingConfirmed.price).toFixed(2)}</span>
+            <div className="pt-2.5 border-t border-zinc-800/80 flex justify-between items-center">
+              <span className="text-zinc-400">Valor no local</span>
+              <span className="font-black text-emerald-400 text-base">R$ {Number(bookingConfirmed.price).toFixed(2)}</span>
             </div>
           </div>
 
           <button
             onClick={() => setBookingConfirmed(null)}
-            className="px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-zinc-950 font-bold text-xs transition"
+            className="w-full sm:w-auto px-6 py-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-zinc-950 font-black text-xs transition"
           >
-            Fazer Novo Agendamento
+            Realizar Outro Agendamento
           </button>
         </div>
       ) : (
-        <div className="bg-zinc-900/90 border border-zinc-800 rounded-2xl p-6 mt-6 shadow-xl">
-          <h1 className="text-lg font-black text-white mb-1">Agende seu horário</h1>
-          <p className="text-xs text-zinc-400 mb-6">
-            Selecione o serviço desejado, o profissional e o melhor horário para você.
-          </p>
-
-          <form onSubmit={handleBook} className="space-y-4">
-            {/* Seleção visual de Serviços */}
-            <div>
-              <label className="block text-xs font-bold uppercase text-zinc-400 mb-2">
-                1. Escolha o Serviço
-              </label>
-              {services.length === 0 ? (
-                <p className="text-xs text-zinc-500">Esta barbearia ainda não cadastrou serviços.</p>
-              ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                  {services.map((s) => {
-                    const selected = selectedServiceId === s.id;
-                    return (
-                      <button
-                        type="button"
-                        key={s.id}
-                        onClick={() => setSelectedServiceId(s.id)}
-                        className={`p-3 rounded-xl border text-left transition ${
-                          selected
-                            ? 'bg-amber-500/15 border-amber-500 text-white'
-                            : 'bg-zinc-950 border-zinc-800 text-zinc-300 hover:border-zinc-700'
-                        }`}
-                      >
-                        <div className="flex justify-between items-start gap-2">
-                          <span className="font-bold text-xs">{s.name}</span>
-                          <span className="text-xs font-black text-amber-400 shrink-0">
-                            R$ {Number(s.price).toFixed(2)}
-                          </span>
-                        </div>
-                        <p className="text-[11px] text-zinc-500 mt-1">{s.duration} min</p>
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
+        <form onSubmit={handleBook} className="space-y-6">
+          {/* ETAPA 1: SERVIÇOS */}
+          <div className="bg-zinc-900/80 backdrop-blur border border-zinc-800 rounded-3xl p-5 sm:p-6">
+            <div className="flex items-center gap-2.5 mb-4">
+              <span className="w-6 h-6 rounded-lg bg-amber-500 text-zinc-950 font-black text-xs flex items-center justify-center">
+                1
+              </span>
+              <h2 className="font-black text-sm uppercase tracking-wider text-white">Escolha o Serviço</h2>
             </div>
 
-            {/* Seleção de Profissional */}
-            <div>
-              <label className="block text-xs font-bold uppercase text-zinc-400 mb-1.5">
-                2. Profissional
-              </label>
-              <select
-                value={selectedBarberId}
-                onChange={(e) => setSelectedBarberId(e.target.value)}
-                className="w-full px-3.5 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-sm text-white"
-              >
-                <option value="">Sem preferência (qualquer barbeiro disponível)</option>
-                {barbers.map((b) => (
-                  <option key={b.id} value={b.id}>
-                    {b.name} — {b.role_title}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {/* Data e Horário */}
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs font-bold uppercase text-zinc-400 mb-1.5">
-                  3. Data
-                </label>
-                <input
-                  type="date"
-                  required
-                  value={date}
-                  onChange={(e) => setDate(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-sm text-white"
-                />
+            {services.length === 0 ? (
+              <p className="text-xs text-zinc-500">Nenhum serviço disponível no momento.</p>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {services.map((s) => {
+                  const selected = selectedServiceId === s.id;
+                  return (
+                    <button
+                      type="button"
+                      key={s.id}
+                      onClick={() => setSelectedServiceId(s.id)}
+                      className={`p-4 rounded-2xl border text-left transition-all relative ${
+                        selected
+                          ? 'bg-amber-500/15 border-amber-500 shadow-lg shadow-amber-500/10'
+                          : 'bg-zinc-950/90 border-zinc-800/90 hover:border-zinc-700'
+                      }`}
+                    >
+                      <div className="flex justify-between items-start gap-2">
+                        <span className={`font-bold text-sm ${selected ? 'text-white' : 'text-zinc-200'}`}>
+                          {s.name}
+                        </span>
+                        <span className="px-2 py-0.5 rounded-lg bg-amber-500/15 text-amber-400 text-xs font-black shrink-0">
+                          R$ {Number(s.price).toFixed(2)}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between mt-2.5 text-[11px] text-zinc-500">
+                        <span className="inline-flex items-center gap-1">
+                          <Clock className="w-3 h-3" /> {s.duration} min
+                        </span>
+                        {selected && <span className="text-amber-400 font-bold">Selecionado ✓</span>}
+                      </div>
+                    </button>
+                  );
+                })}
               </div>
-              <div>
-                <label className="block text-xs font-bold uppercase text-zinc-400 mb-1.5">
-                  4. Horário
-                </label>
-                <input
-                  type="time"
-                  required
-                  value={time}
-                  onChange={(e) => setTime(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-sm text-white"
-                />
-              </div>
+            )}
+          </div>
+
+          {/* ETAPA 2: PROFISSIONAL */}
+          <div className="bg-zinc-900/80 backdrop-blur border border-zinc-800 rounded-3xl p-5 sm:p-6">
+            <div className="flex items-center gap-2.5 mb-4">
+              <span className="w-6 h-6 rounded-lg bg-amber-500 text-zinc-950 font-black text-xs flex items-center justify-center">
+                2
+              </span>
+              <h2 className="font-black text-sm uppercase tracking-wider text-white">Escolha o Profissional</h2>
             </div>
 
-            {/* Dados do Cliente */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={() => { setSelectedBarberId(''); setTime(''); }}
+                className={`p-3.5 rounded-2xl border flex items-center gap-3 text-left transition ${
+                  selectedBarberId === ''
+                    ? 'bg-amber-500/15 border-amber-500 text-white'
+                    : 'bg-zinc-950/90 border-zinc-800 text-zinc-300 hover:border-zinc-700'
+                }`}
+              >
+                <div className="w-10 h-10 rounded-xl bg-zinc-800 flex items-center justify-center text-amber-400 font-black text-xs shrink-0">
+                  <Users className="w-5 h-5" />
+                </div>
+                <div>
+                  <p className="font-bold text-xs text-white">Sem preferência</p>
+                  <p className="text-[11px] text-zinc-500">Primeiro barbeiro livre</p>
+                </div>
+              </button>
+
+              {barbers.map((b) => {
+                const selected = selectedBarberId === b.id;
+                const initials = b.name
+                  .split(' ')
+                  .map((n) => n[0])
+                  .slice(0, 2)
+                  .join('')
+                  .toUpperCase();
+                return (
+                  <button
+                    type="button"
+                    key={b.id}
+                    onClick={() => { setSelectedBarberId(b.id); setTime(''); }}
+                    className={`p-3.5 rounded-2xl border flex items-center gap-3 text-left transition ${
+                      selected
+                        ? 'bg-amber-500/15 border-amber-500 text-white'
+                        : 'bg-zinc-950/90 border-zinc-800 text-zinc-300 hover:border-zinc-700'
+                    }`}
+                  >
+                    <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-400 to-amber-600 text-zinc-950 flex items-center justify-center font-black text-xs shrink-0">
+                      {initials}
+                    </div>
+                    <div>
+                      <p className="font-bold text-xs text-white">{b.name}</p>
+                      <p className="text-[11px] text-zinc-400">{b.role_title}</p>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* ETAPA 3: DATA E GRADE DE HORÁRIOS */}
+          <div className="bg-zinc-900/80 backdrop-blur border border-zinc-800 rounded-3xl p-5 sm:p-6">
+            <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+              <div className="flex items-center gap-2.5">
+                <span className="w-6 h-6 rounded-lg bg-amber-500 text-zinc-950 font-black text-xs flex items-center justify-center">
+                  3
+                </span>
+                <h2 className="font-black text-sm uppercase tracking-wider text-white">Data e Horário</h2>
+              </div>
+              <input
+                type="date"
+                required
+                min={todayStr}
+                value={date}
+                onChange={(e) => { setDate(e.target.value); setTime(''); }}
+                className="px-3.5 py-2 rounded-xl bg-zinc-950 border border-zinc-800 text-xs font-bold text-white focus:border-amber-500 focus:outline-none"
+              />
+            </div>
+
+            <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
+              {TIME_SLOTS.map((slot) => {
+                const isBooked = bookedTimesOnDate.includes(slot);
+                const isSelected = time === slot;
+                return (
+                  <button
+                    type="button"
+                    key={slot}
+                    disabled={isBooked}
+                    onClick={() => setTime(slot)}
+                    className={`py-2.5 rounded-xl text-xs font-bold border transition ${
+                      isBooked
+                        ? 'bg-zinc-950/40 border-zinc-900 text-zinc-600 line-through cursor-not-allowed'
+                        : isSelected
+                        ? 'bg-amber-500 border-amber-400 text-zinc-950 font-black shadow-md shadow-amber-500/20'
+                        : 'bg-zinc-950 border-zinc-800 text-zinc-200 hover:border-amber-500/50'
+                    }`}
+                  >
+                    {slot}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* ETAPA 4: SEUS DADOS E CONFIRMAÇÃO */}
+          <div className="bg-zinc-900/80 backdrop-blur border border-zinc-800 rounded-3xl p-5 sm:p-6">
+            <div className="flex items-center gap-2.5 mb-4">
+              <span className="w-6 h-6 rounded-lg bg-amber-500 text-zinc-950 font-black text-xs flex items-center justify-center">
+                4
+              </span>
+              <h2 className="font-black text-sm uppercase tracking-wider text-white">Seus Dados</h2>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-5">
               <div>
-                <label className="block text-xs font-bold uppercase text-zinc-400 mb-1.5">
-                  Seu Nome
-                </label>
+                <label className="block text-[11px] font-bold uppercase text-zinc-400 mb-1">Seu Nome</label>
                 <input
                   type="text"
                   required
                   value={clientName}
                   onChange={(e) => setClientName(e.target.value)}
-                  placeholder="Nome completo"
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-sm text-white"
+                  placeholder="Como gostaria de ser chamado"
+                  className="w-full px-3.5 py-3 rounded-xl bg-zinc-950 border border-zinc-800 text-sm text-white focus:border-amber-500 focus:outline-none"
                 />
               </div>
               <div>
-                <label className="block text-xs font-bold uppercase text-zinc-400 mb-1.5">
-                  Seu WhatsApp
-                </label>
+                <label className="block text-[11px] font-bold uppercase text-zinc-400 mb-1">WhatsApp</label>
                 <input
                   type="text"
                   required
                   value={clientPhone}
                   onChange={(e) => setClientPhone(e.target.value)}
                   placeholder="(82) 99999-9999"
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-sm text-white"
+                  className="w-full px-3.5 py-3 rounded-xl bg-zinc-950 border border-zinc-800 text-sm text-white focus:border-amber-500 focus:outline-none"
                 />
               </div>
             </div>
 
+            {selectedService && (
+              <div className="p-3.5 rounded-2xl bg-zinc-950 border border-zinc-800 mb-4 flex items-center justify-between text-xs">
+                <div>
+                  <p className="text-zinc-400">Resumo do agendamento:</p>
+                  <p className="font-bold text-white mt-0.5">
+                    {selectedService.name} {time ? `• ${date} às ${time}` : ''}
+                  </p>
+                </div>
+                <span className="text-base font-black text-amber-400">
+                  R$ {Number(selectedService.price).toFixed(2)}
+                </span>
+              </div>
+            )}
+
             <button
               type="submit"
-              disabled={submitting || !selectedServiceId}
-              className="w-full py-3.5 rounded-xl bg-amber-500 hover:bg-amber-400 disabled:opacity-40 text-zinc-950 font-black text-sm transition"
+              disabled={submitting || !selectedServiceId || !time}
+              className="w-full py-4 rounded-2xl bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 disabled:opacity-40 text-zinc-950 font-black text-sm transition shadow-xl shadow-amber-500/20 flex items-center justify-center gap-2"
             >
-              <span>{submitting ? 'Confirmando horário...' : 'Confirmar Agendamento'}</span>
+              <span>{submitting ? 'Confirmando reserva...' : 'Confirmar Agendamento'}</span>
+              <ChevronRight className="w-4 h-4" />
             </button>
-          </form>
-        </div>
+          </div>
+        </form>
       )}
 
-      <footer className="text-center text-[11px] text-zinc-600 mt-8">
-        Agendamento online • Tecnologia Navalha.io
+      <footer className="text-center text-[11px] text-zinc-600 mt-10">
+        Sistema de agendamento exclusivo • Navalha.io
       </footer>
     </div>
   );
 }
 
 /* ============================================================================
-   2. PORTAL INSTITUCIONAL (HOME RAIZ: APENAS APRESENTAÇÃO + ACESSO PARCEIROS)
+   2. PORTAL INSTITUCIONAL (HOME RAIZ: DARK & GOLD LUXURY)
    ============================================================================ */
 function PlatformHomePortal({ onOpenLogin }) {
   return (
     <div className="max-w-5xl mx-auto px-4 py-6 min-h-screen flex flex-col justify-between">
-      <header className="flex items-center justify-between pb-6 border-b border-zinc-900">
+      <header className="flex items-center justify-between py-3 px-4 rounded-2xl bg-zinc-900/60 backdrop-blur border border-zinc-800/80">
         <BrandLogo />
         <button
           onClick={onOpenLogin}
-          className="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-zinc-950 text-xs sm:text-sm font-bold flex items-center gap-2 transition"
+          className="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-zinc-950 text-xs sm:text-sm font-black flex items-center gap-2 transition shadow-lg shadow-amber-500/20"
         >
           <Shield className="w-4 h-4" /> Entrar no Painel
         </button>
       </header>
 
-      <main className="text-center max-w-2xl mx-auto my-16">
-        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs font-semibold mb-5">
-          <Sparkles className="w-3.5 h-3.5" /> Sistema de Gestão para Barbearias
+      <main className="text-center max-w-3xl mx-auto my-14">
+        <span className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs font-bold mb-6">
+          <Sparkles className="w-3.5 h-3.5" /> Plataforma SaaS de Alta Performance para Barbearias
         </span>
-        <h1 className="text-3xl sm:text-5xl font-black tracking-tight text-white leading-tight">
-          Controle completo da sua barbearia com{' '}
-          <span className="text-amber-400">link exclusivo</span> de agendamento.
+        <h1 className="text-4xl sm:text-6xl font-black tracking-tight text-white leading-[1.08]">
+          Sua barbearia no controle total, com{' '}
+          <span className="text-transparent bg-clip-text bg-gradient-to-r from-amber-300 via-amber-400 to-amber-600">
+            link exclusivo
+          </span>{' '}
+          de agendamento.
         </h1>
-        <p className="text-zinc-400 text-sm sm:text-base mt-5 leading-relaxed">
-          Agenda inteligente, cálculo automático de comissões, controle de estoque e fechamento financeiro mensal em um único painel administrativo.
+        <p className="text-zinc-400 text-sm sm:text-base mt-6 max-w-xl mx-auto leading-relaxed">
+          Cada unidade ganha sua própria página personalizada para a bio do Instagram, enquanto o proprietário acompanha faturamento mensal, comissões e estoque em tempo real.
         </p>
 
-        <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
+        <div className="mt-9 flex flex-wrap items-center justify-center gap-3">
           <button
             onClick={onOpenLogin}
-            className="px-6 py-3.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-zinc-950 font-black text-sm flex items-center gap-2 transition shadow-lg shadow-amber-500/20"
+            className="px-7 py-4 rounded-2xl bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 text-zinc-950 font-black text-sm flex items-center gap-2 transition shadow-xl shadow-amber-500/25"
           >
-            <Shield className="w-4 h-4" /> Acessar Painel da Minha Barbearia
+            <Shield className="w-4 h-4" /> Acessar Painel Administrativo
           </button>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-14 text-left">
-          <div className="p-4 rounded-2xl bg-zinc-900/70 border border-zinc-800">
-            <Link2 className="w-5 h-5 text-amber-400 mb-2" />
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-16 text-left">
+          <div className="p-5 rounded-3xl bg-zinc-900/70 backdrop-blur border border-zinc-800/90 hover:border-amber-500/30 transition">
+            <div className="w-10 h-10 rounded-xl bg-amber-500/15 text-amber-400 flex items-center justify-center mb-3">
+              <Link2 className="w-5 h-5" />
+            </div>
             <h3 className="font-bold text-sm text-white">Link Próprio na Bio</h3>
-            <p className="text-xs text-zinc-400 mt-1">
-              Cada unidade recebe sua própria página personalizada para compartilhar com clientes.
+            <p className="text-xs text-zinc-400 mt-1.5 leading-relaxed">
+              URL exclusiva com bloqueio automático de horários ocupados e seleção de barbeiro.
             </p>
           </div>
-          <div className="p-4 rounded-2xl bg-zinc-900/70 border border-zinc-800">
-            <TrendingUp className="w-5 h-5 text-amber-400 mb-2" />
-            <h3 className="font-bold text-sm text-white">Financeiro & Comissões</h3>
-            <p className="text-xs text-zinc-400 mt-1">
-              Apuração automática de rendimento mensal, repasse por barbeiro e despesas.
+          <div className="p-5 rounded-3xl bg-zinc-900/70 backdrop-blur border border-zinc-800/90 hover:border-amber-500/30 transition">
+            <div className="w-10 h-10 rounded-xl bg-amber-500/15 text-amber-400 flex items-center justify-center mb-3">
+              <TrendingUp className="w-5 h-5" />
+            </div>
+            <h3 className="font-bold text-sm text-white">Rendimento & Comissões</h3>
+            <p className="text-xs text-zinc-400 mt-1.5 leading-relaxed">
+              Fechamento mensal automático com cálculo de repasse individual por profissional.
             </p>
           </div>
-          <div className="p-4 rounded-2xl bg-zinc-900/70 border border-zinc-800">
-            <Package className="w-5 h-5 text-amber-400 mb-2" />
+          <div className="p-5 rounded-3xl bg-zinc-900/70 backdrop-blur border border-zinc-800/90 hover:border-amber-500/30 transition">
+            <div className="w-10 h-10 rounded-xl bg-amber-500/15 text-amber-400 flex items-center justify-center mb-3">
+              <Package className="w-5 h-5" />
+            </div>
             <h3 className="font-bold text-sm text-white">Estoque & Revenda</h3>
-            <p className="text-xs text-zinc-400 mt-1">
-              Controle de pomadas, óleos e produtos com baixa automática no balcão.
+            <p className="text-xs text-zinc-400 mt-1.5 leading-relaxed">
+              Controle de produtos com alerta de reposição e venda rápida no balcão.
             </p>
           </div>
         </div>
       </main>
 
-      <footer className="text-center text-xs text-zinc-600 py-4 border-t border-zinc-900">
-        Navalha.io • Plataforma Multi-Unidades para Barbearias
+      <footer className="text-center text-xs text-zinc-600 py-5 border-t border-zinc-900">
+        Navalha.io • Tecnologia para Barbearias Modernas
       </footer>
     </div>
   );
 }
 
 /* ============================================================================
-   3. CONSOLE SUPER ADMIN (COM LINK EXCLUSIVO DE CADA BARBEARIA)
+   3. CONSOLE SUPER ADMIN
    ============================================================================ */
 function SuperAdminConsole({ tenants, onRefresh, onImpersonate, onCopyLink, onLogout, notify }) {
   const [showNewModal, setShowNewModal] = useState(false);
@@ -714,58 +842,59 @@ function SuperAdminConsole({ tenants, onRefresh, onImpersonate, onCopyLink, onLo
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-6">
-      <header className="flex flex-wrap items-center justify-between gap-4 pb-6 border-b border-zinc-800">
+      <header className="flex flex-wrap items-center justify-between gap-4 p-4 rounded-2xl bg-zinc-900/70 backdrop-blur border border-zinc-800">
         <div className="flex items-center gap-3">
           <BrandLogo subtitle="Console Master • Super Admin" />
-          <span className="px-3 py-1 rounded-full bg-amber-500/15 text-amber-400 text-xs font-bold flex items-center gap-1">
+          <span className="px-3 py-1 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-400 text-xs font-bold flex items-center gap-1">
             <Crown className="w-3.5 h-3.5" /> Admin Geral
           </span>
         </div>
         <div className="flex items-center gap-2.5">
           <button
             onClick={() => { setFormError(''); setShowNewModal(true); }}
-            className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-zinc-950 text-xs font-bold flex items-center gap-1.5 transition"
+            className="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-zinc-950 text-xs font-black flex items-center gap-1.5 transition shadow-lg shadow-amber-500/20"
           >
             <Plus className="w-4 h-4" /> Nova Barbearia
           </button>
           <button
             onClick={onLogout}
-            className="px-4 py-2 rounded-xl bg-zinc-900 border border-zinc-800 text-xs font-bold flex items-center gap-2"
+            className="px-4 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-xs font-bold flex items-center gap-2 hover:border-zinc-700"
           >
             <LogOut className="w-4 h-4" /> Sair
           </button>
         </div>
       </header>
 
-      <div className="my-6 bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden">
-        <div className="p-4 border-b border-zinc-800 flex items-center justify-between">
-          <h2 className="font-bold text-sm text-white">Barbearias Credenciadas ({tenants.length})</h2>
+      <div className="my-6 bg-zinc-900/80 backdrop-blur border border-zinc-800 rounded-3xl overflow-hidden shadow-xl">
+        <div className="p-5 border-b border-zinc-800 flex items-center justify-between">
+          <h2 className="font-black text-sm uppercase tracking-wider text-white">
+            Barbearias Credenciadas ({tenants.length})
+          </h2>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm">
             <thead>
-              <tr className="border-b border-zinc-800 text-xs text-zinc-400 uppercase">
-                <th className="py-3 px-4">Barbearia</th>
-                <th className="py-3 px-4">Dono / E-mail</th>
-                <th className="py-3 px-4">Link Público Exclusivo</th>
-                <th className="py-3 px-4">Plano</th>
-                <th className="py-3 px-4 text-right">Ações Master</th>
+              <tr className="border-b border-zinc-800 bg-zinc-950/50 text-[11px] text-zinc-400 uppercase tracking-wider">
+                <th className="py-3.5 px-5">Barbearia</th>
+                <th className="py-3.5 px-5">Proprietário</th>
+                <th className="py-3.5 px-5">Link Exclusivo</th>
+                <th className="py-3.5 px-5">Plano</th>
+                <th className="py-3.5 px-5 text-right">Ações Master</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-zinc-800">
+            <tbody className="divide-y divide-zinc-800/80">
               {tenants.map((t) => (
-                <tr key={t.id} className="hover:bg-zinc-800/30">
-                  <td className="py-3.5 px-4 font-bold text-white">{t.name}</td>
-                  <td className="py-3.5 px-4">
-                    <p className="text-zinc-200">{t.owner_name}</p>
+                <tr key={t.id} className="hover:bg-zinc-800/30 transition">
+                  <td className="py-4 px-5 font-bold text-white">{t.name}</td>
+                  <td className="py-4 px-5">
+                    <p className="text-zinc-200 font-medium">{t.owner_name}</p>
                     <p className="text-xs text-zinc-500">{t.owner_email}</p>
                   </td>
-                  <td className="py-3.5 px-4">
+                  <td className="py-4 px-5">
                     <div className="flex items-center gap-1.5">
                       <button
                         onClick={() => onCopyLink(t.slug)}
-                        className="px-2.5 py-1 rounded-lg bg-zinc-950 border border-zinc-800 hover:border-amber-500/50 text-xs text-amber-400 font-semibold inline-flex items-center gap-1"
-                        title="Copiar link para enviar ao cliente"
+                        className="px-3 py-1.5 rounded-xl bg-zinc-950 border border-zinc-800 hover:border-amber-500/50 text-xs text-amber-400 font-bold inline-flex items-center gap-1.5 transition"
                       >
                         <Copy className="w-3 h-3" /> /b/{t.slug}
                       </button>
@@ -773,27 +902,30 @@ function SuperAdminConsole({ tenants, onRefresh, onImpersonate, onCopyLink, onLo
                         href={`/b/${t.slug}`}
                         target="_blank"
                         rel="noreferrer"
-                        className="p-1.5 rounded-lg bg-zinc-950 border border-zinc-800 text-zinc-400 hover:text-white"
-                        title="Abrir página pública da barbearia"
+                        className="p-2 rounded-xl bg-zinc-950 border border-zinc-800 text-zinc-400 hover:text-white transition"
                       >
                         <ExternalLink className="w-3.5 h-3.5" />
                       </a>
                     </div>
                   </td>
-                  <td className="py-3.5 px-4 uppercase text-xs font-bold text-amber-400">{t.plan_id}</td>
-                  <td className="py-3.5 px-4 text-right space-x-2">
+                  <td className="py-4 px-5">
+                    <span className="px-2.5 py-1 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-400 uppercase text-[11px] font-black">
+                      {t.plan_id}
+                    </span>
+                  </td>
+                  <td className="py-4 px-5 text-right space-x-2">
                     <button
                       onClick={() => onImpersonate(t.id)}
-                      className="px-3 py-1.5 rounded-lg bg-amber-500 text-zinc-950 text-xs font-bold inline-flex items-center gap-1"
+                      className="px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-zinc-950 text-xs font-black inline-flex items-center gap-1.5 transition"
                     >
                       <Eye className="w-3.5 h-3.5" /> Gerenciar Painel
                     </button>
                     <button
                       onClick={() => toggleStatus(t)}
-                      className="p-1.5 rounded-lg bg-zinc-800 text-zinc-300 hover:text-white"
+                      className="p-2 rounded-xl bg-zinc-950 border border-zinc-800 text-zinc-300 hover:text-white transition"
                       title="Bloquear / Desbloquear"
                     >
-                      {t.status === 'blocked' ? <Unlock className="w-4 h-4" /> : <Lock className="w-4 h-4" />}
+                      {t.status === 'blocked' ? <Unlock className="w-4 h-4 text-emerald-400" /> : <Lock className="w-4 h-4" />}
                     </button>
                   </td>
                 </tr>
@@ -804,21 +936,21 @@ function SuperAdminConsole({ tenants, onRefresh, onImpersonate, onCopyLink, onLo
       </div>
 
       {showNewModal && (
-        <div className="fixed inset-0 z-50 bg-black/85 overflow-y-auto flex items-center justify-center p-4">
-          <div className="w-full max-w-md bg-zinc-900 border border-zinc-800 rounded-2xl p-6 shadow-2xl my-8">
-            <div className="flex items-center justify-between mb-5">
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm overflow-y-auto flex items-center justify-center p-4">
+          <div className="w-full max-w-md bg-zinc-900 border border-zinc-800 rounded-3xl p-7 shadow-2xl my-8">
+            <div className="flex items-center justify-between mb-6">
               <BrandLogo subtitle="Cadastrar Nova Unidade e Acesso" />
               <button
                 onClick={() => setShowNewModal(false)}
-                className="p-2 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800"
+                className="p-2 rounded-xl text-zinc-400 hover:text-white hover:bg-zinc-800"
               >
                 <XCircle className="w-5 h-5" />
               </button>
             </div>
 
-            <form onSubmit={handleCreateBarbershop} className="space-y-3.5">
+            <form onSubmit={handleCreateBarbershop} className="space-y-4">
               <div>
-                <label className="block text-xs font-semibold text-zinc-400 uppercase mb-1">Nome da Barbearia</label>
+                <label className="block text-xs font-bold text-zinc-400 uppercase mb-1">Nome da Barbearia</label>
                 <input
                   type="text"
                   required
@@ -831,7 +963,7 @@ function SuperAdminConsole({ tenants, onRefresh, onImpersonate, onCopyLink, onLo
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-semibold text-zinc-400 uppercase mb-1">Nome do Proprietário</label>
+                  <label className="block text-xs font-bold text-zinc-400 uppercase mb-1">Nome do Dono</label>
                   <input
                     type="text"
                     required
@@ -842,7 +974,7 @@ function SuperAdminConsole({ tenants, onRefresh, onImpersonate, onCopyLink, onLo
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-zinc-400 uppercase mb-1">WhatsApp</label>
+                  <label className="block text-xs font-bold text-zinc-400 uppercase mb-1">WhatsApp</label>
                   <input
                     type="text"
                     value={ownerPhone}
@@ -854,7 +986,7 @@ function SuperAdminConsole({ tenants, onRefresh, onImpersonate, onCopyLink, onLo
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-zinc-400 uppercase mb-1">Plano Contratado</label>
+                <label className="block text-xs font-bold text-zinc-400 uppercase mb-1">Plano Contratado</label>
                 <select
                   value={planId}
                   onChange={(e) => setPlanId(e.target.value)}
@@ -867,7 +999,7 @@ function SuperAdminConsole({ tenants, onRefresh, onImpersonate, onCopyLink, onLo
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-zinc-400 uppercase mb-1">E-mail de Login do Dono</label>
+                <label className="block text-xs font-bold text-zinc-400 uppercase mb-1">E-mail de Login do Dono</label>
                 <input
                   type="email"
                   required
@@ -879,7 +1011,7 @@ function SuperAdminConsole({ tenants, onRefresh, onImpersonate, onCopyLink, onLo
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-zinc-400 uppercase mb-1">Senha Inicial de Acesso</label>
+                <label className="block text-xs font-bold text-zinc-400 uppercase mb-1">Senha Inicial de Acesso</label>
                 <input
                   type="text"
                   required
@@ -892,7 +1024,7 @@ function SuperAdminConsole({ tenants, onRefresh, onImpersonate, onCopyLink, onLo
               </div>
 
               {formError && (
-                <p className="text-xs text-rose-400 bg-rose-500/10 border border-rose-500/20 p-2.5 rounded-lg">
+                <p className="text-xs text-rose-400 bg-rose-500/10 border border-rose-500/20 p-3 rounded-xl">
                   {formError}
                 </p>
               )}
@@ -900,7 +1032,7 @@ function SuperAdminConsole({ tenants, onRefresh, onImpersonate, onCopyLink, onLo
               <button
                 type="submit"
                 disabled={creating}
-                className="w-full py-3 rounded-xl bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-zinc-950 font-bold text-sm transition flex items-center justify-center gap-2"
+                className="w-full py-3.5 rounded-xl bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-zinc-950 font-black text-sm transition flex items-center justify-center gap-2"
               >
                 {creating && <Loader2 className="w-4 h-4 animate-spin" />}
                 <span>{creating ? 'Criando Barbearia...' : 'Cadastrar Barbearia e Gerar Acesso'}</span>
@@ -914,7 +1046,8 @@ function SuperAdminConsole({ tenants, onRefresh, onImpersonate, onCopyLink, onLo
 }
 
 /* ============================================================================
-   4. PAINEL COMPLETO DO DONO DA BARBEARIA (COM BOTÃO DE COPIAR LINK EXCLUSIVO)
+   4. PAINEL EXECUTIVO DO DONO DA BARBEARIA
+   Com KPIs no Topo, Gráfico Financeiro e Editor de Link Personalizado
    ============================================================================ */
 function OwnerDashboardShell({
   profile,
@@ -932,6 +1065,10 @@ function OwnerDashboardShell({
 }) {
   const [activeTab, setActiveTab] = useState('agenda');
 
+  // Editor de Link Exclusivo (Slug)
+  const [editingSlug, setEditingSlug] = useState(false);
+  const [customSlug, setCustomSlug] = useState(tenant?.slug || '');
+
   const [srvName, setSrvName] = useState('');
   const [srvPrice, setSrvPrice] = useState('');
   const [srvDuration, setSrvDuration] = useState('40');
@@ -943,6 +1080,7 @@ function OwnerDashboardShell({
   const [barberCommission, setBarberCommission] = useState('50');
 
   const currentMonth = new Date().toISOString().slice(0, 7);
+  const todayStr = new Date().toISOString().slice(0, 10);
   const [selectedMonth, setSelectedMonth] = useState(currentMonth);
   const [expDesc, setExpDesc] = useState('');
   const [expCategory, setExpCategory] = useState('Aluguel / Contas');
@@ -964,6 +1102,25 @@ function OwnerDashboardShell({
       </div>
     );
   }
+
+  const handleSaveCustomSlug = async () => {
+    const cleanSlug = customSlug
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9-]+/g, '-')
+      .replace(/^-+|-+$/g, '');
+
+    if (!cleanSlug) return;
+    const { error } = await supabase.from('tenants').update({ slug: cleanSlug }).eq('id', tenant.id);
+    if (error) {
+      notify('Esse link já está em uso por outra barbearia.');
+      return;
+    }
+    setEditingSlug(false);
+    notify(`Link atualizado para /b/${cleanSlug}`);
+    onRefresh();
+  };
 
   const updateAppointmentStatus = async (aptId, nextStatus) => {
     await supabase.from('appointments').update({ status: nextStatus }).eq('id', aptId);
@@ -1107,7 +1264,7 @@ function OwnerDashboardShell({
         quantity: 1,
         unit_price: prod.sale_price,
         total_amount: prod.sale_price,
-        sold_at: new Date().toISOString().slice(0, 10),
+        sold_at: todayStr,
       }),
     ]);
     notify(`Venda registrada: ${prod.name} (+R$ ${Number(prod.sale_price).toFixed(2)})`);
@@ -1120,6 +1277,8 @@ function OwnerDashboardShell({
     onRefresh();
   };
 
+  // --- CÁLCULOS FINANCEIROS ---
+  const todayAppointments = appointments.filter((a) => a.date === todayStr && a.status !== 'cancelled');
   const monthCompletedApts = appointments.filter(
     (a) => a.status === 'completed' && a.date?.startsWith(selectedMonth)
   );
@@ -1145,46 +1304,121 @@ function OwnerDashboardShell({
   const totalExpenses = monthExpenses.reduce((acc, e) => acc + Number(e.amount || 0), 0);
   const netProfit = grossRevenue - totalCommissions - totalExpenses;
 
+  const lowStockCount = products.filter((p) => p.stock_qty <= p.min_stock).length;
   const totalStockItems = products.reduce((acc, p) => acc + Number(p.stock_qty || 0), 0);
   const totalStockValue = products.reduce((acc, p) => acc + Number(p.stock_qty || 0) * Number(p.sale_price || 0), 0);
 
+  const maxChartVal = Math.max(grossRevenue, totalCommissions, totalExpenses, Math.abs(netProfit), 1);
+
   return (
     <div className="max-w-6xl mx-auto px-4 py-6">
-      <header className="flex flex-wrap items-center justify-between gap-4 pb-5 border-b border-zinc-800">
-        <BrandLogo subtitle={`${tenant.name} • Painel de Gestão`} />
+      {/* HEADER EXECUTIVO */}
+      <header className="flex flex-wrap items-center justify-between gap-4 p-4 rounded-3xl bg-zinc-900/80 backdrop-blur border border-zinc-800">
+        <BrandLogo title={tenant.name} badge="GESTÃO" subtitle={`Proprietário: ${profile?.full_name || tenant.owner_name}`} />
 
-        {/* Barra de compartilhamento do Link Exclusivo da Barbearia */}
         <div className="flex flex-wrap items-center gap-2">
-          <button
-            onClick={onCopyLink}
-            className="px-3.5 py-2 rounded-xl bg-amber-500/15 border border-amber-500/40 text-amber-400 hover:bg-amber-500/25 text-xs font-bold flex items-center gap-1.5 transition"
-          >
-            <Copy className="w-3.5 h-3.5" /> Copiar Link de Agendamento
-          </button>
-          <a
-            href={`/b/${tenant.slug}`}
-            target="_blank"
-            rel="noreferrer"
-            className="px-3 py-2 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-300 hover:text-white text-xs font-bold flex items-center gap-1.5"
-            title="Visualizar página pública do cliente"
-          >
-            <ExternalLink className="w-3.5 h-3.5" /> Ver Página
-          </a>
+          {editingSlug ? (
+            <div className="flex items-center gap-1.5 bg-zinc-950 border border-amber-500/50 rounded-xl px-2.5 py-1">
+              <span className="text-[11px] text-zinc-500">/b/</span>
+              <input
+                type="text"
+                value={customSlug}
+                onChange={(e) => setCustomSlug(e.target.value)}
+                className="w-32 bg-transparent text-xs text-white font-bold focus:outline-none"
+              />
+              <button onClick={handleSaveCustomSlug} className="p-1 rounded bg-emerald-500 text-zinc-950">
+                <Check className="w-3.5 h-3.5" />
+              </button>
+              <button onClick={() => setEditingSlug(false)} className="p-1 text-zinc-400">
+                <XCircle className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={onCopyLink}
+                className="px-3.5 py-2 rounded-xl bg-amber-500/15 border border-amber-500/40 text-amber-400 hover:bg-amber-500/25 text-xs font-bold flex items-center gap-1.5 transition"
+              >
+                <Copy className="w-3.5 h-3.5" /> Copiar Link Exclusivo
+              </button>
+              <button
+                onClick={() => { setCustomSlug(tenant.slug); setEditingSlug(true); }}
+                className="p-2 rounded-xl bg-zinc-950 border border-zinc-800 text-zinc-400 hover:text-white transition"
+                title="Personalizar URL da barbearia"
+              >
+                <SlidersHorizontal className="w-3.5 h-3.5" />
+              </button>
+              <a
+                href={`/b/${tenant.slug}`}
+                target="_blank"
+                rel="noreferrer"
+                className="p-2 rounded-xl bg-zinc-950 border border-zinc-800 text-zinc-400 hover:text-white transition"
+                title="Abrir página do cliente"
+              >
+                <ExternalLink className="w-3.5 h-3.5" />
+              </a>
+            </div>
+          )}
+
           <button
             onClick={onLogout}
-            className="px-3.5 py-2 rounded-xl bg-zinc-900 border border-zinc-800 text-xs font-bold flex items-center gap-1.5 hover:border-zinc-700"
+            className="px-3.5 py-2 rounded-xl bg-zinc-950 border border-zinc-800 text-xs font-bold flex items-center gap-1.5 hover:border-zinc-700 transition"
           >
             <LogOut className="w-4 h-4" /> Sair
           </button>
         </div>
       </header>
 
-      <nav className="flex flex-wrap gap-2 my-6">
+      {/* CARDS DE INDICADORES RÁPIDOS (KPIs) */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 my-5">
+        <div className="p-4 rounded-2xl bg-zinc-900/70 border border-zinc-800/90">
+          <div className="flex items-center justify-between text-zinc-400 text-xs">
+            <span>Agenda Hoje</span>
+            <Calendar className="w-4 h-4 text-amber-400" />
+          </div>
+          <p className="text-2xl font-black text-white mt-1.5">{todayAppointments.length}</p>
+          <p className="text-[11px] text-zinc-500 mt-0.5">clientes marcados hoje</p>
+        </div>
+
+        <div className="p-4 rounded-2xl bg-zinc-900/70 border border-zinc-800/90">
+          <div className="flex items-center justify-between text-zinc-400 text-xs">
+            <span>Faturamento ({selectedMonth})</span>
+            <DollarSign className="w-4 h-4 text-amber-400" />
+          </div>
+          <p className="text-2xl font-black text-white mt-1.5">R$ {grossRevenue.toFixed(0)}</p>
+          <p className="text-[11px] text-zinc-500 mt-0.5">serviços + produtos</p>
+        </div>
+
+        <div className="p-4 rounded-2xl bg-zinc-900/70 border border-emerald-500/25">
+          <div className="flex items-center justify-between text-emerald-400 text-xs font-semibold">
+            <span>Lucro Líquido</span>
+            <TrendingUp className="w-4 h-4" />
+          </div>
+          <p className={`text-2xl font-black mt-1.5 ${netProfit >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+            R$ {netProfit.toFixed(0)}
+          </p>
+          <p className="text-[11px] text-zinc-500 mt-0.5">livre após comissões e custos</p>
+        </div>
+
+        <div className="p-4 rounded-2xl bg-zinc-900/70 border border-zinc-800/90">
+          <div className="flex items-center justify-between text-zinc-400 text-xs">
+            <span>Estoque Ativo</span>
+            <Package className="w-4 h-4 text-amber-400" />
+          </div>
+          <p className="text-2xl font-black text-white mt-1.5">{totalStockItems} un.</p>
+          <p className="text-[11px] text-zinc-500 mt-0.5">
+            {lowStockCount > 0 ? `${lowStockCount} produto(s) acabando` : 'níveis abastecidos'}
+          </p>
+        </div>
+      </div>
+
+      {/* MENU DE NAVEGAÇÃO EM ABAS */}
+      <nav className="flex flex-wrap gap-2 mb-6">
         {[
           { id: 'agenda', label: `Agenda (${appointments.length})`, icon: Calendar },
           { id: 'servicos', label: `Serviços (${services.length})`, icon: Scissors },
           { id: 'barbeiros', label: `Barbeiros (${barbers.length})`, icon: Users },
-          { id: 'financeiro', label: 'Financeiro Mensal', icon: DollarSign },
+          { id: 'financeiro', label: 'Financeiro Mensal', icon: BarChart3 },
           { id: 'estoque', label: `Estoque (${products.length})`, icon: Package },
         ].map((tab) => {
           const Icon = tab.icon;
@@ -1193,10 +1427,10 @@ function OwnerDashboardShell({
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2 transition ${
+              className={`px-4 py-2.5 rounded-xl text-xs font-black flex items-center gap-2 transition ${
                 active
-                  ? 'bg-amber-500 text-zinc-950 shadow-lg shadow-amber-500/15'
-                  : 'bg-zinc-900 border border-zinc-800 text-zinc-300 hover:text-white'
+                  ? 'bg-gradient-to-r from-amber-400 to-amber-500 text-zinc-950 shadow-lg shadow-amber-500/20'
+                  : 'bg-zinc-900/80 border border-zinc-800 text-zinc-300 hover:text-white hover:border-zinc-700'
               }`}
             >
               <Icon className="w-4 h-4" />
@@ -1206,42 +1440,59 @@ function OwnerDashboardShell({
         })}
       </nav>
 
+      {/* ABA 1: AGENDA */}
       {activeTab === 'agenda' && (
-        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5">
-          <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
-            <h2 className="font-bold text-base text-white flex items-center gap-2">
-              <Calendar className="w-4 h-4 text-amber-400" /> Agendamentos da Barbearia
-            </h2>
-            <span className="text-xs text-zinc-400">
-              Clique em <strong>Concluir</strong> após o corte para somar no rendimento mensal
-            </span>
+        <div className="bg-zinc-900/80 backdrop-blur border border-zinc-800 rounded-3xl p-6">
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-5">
+            <div>
+              <h2 className="font-black text-base text-white flex items-center gap-2">
+                <Calendar className="w-4 h-4 text-amber-400" /> Agendamentos da Barbearia
+              </h2>
+              <p className="text-xs text-zinc-400 mt-0.5">
+                Conclua os atendimentos finalizados para contabilizar no rendimento mensal
+              </p>
+            </div>
           </div>
 
           {appointments.length === 0 ? (
-            <p className="text-sm text-zinc-400 py-6 text-center">Nenhum agendamento registrado ainda.</p>
+            <div className="text-center py-10 border border-dashed border-zinc-800 rounded-2xl">
+              <p className="text-sm text-zinc-400 font-medium">Nenhum agendamento recebido ainda.</p>
+              <button
+                onClick={onCopyLink}
+                className="mt-3 px-4 py-2 rounded-xl bg-amber-500/15 text-amber-400 text-xs font-bold inline-flex items-center gap-1.5"
+              >
+                <Copy className="w-3.5 h-3.5" /> Compartilhar Link com Clientes
+              </button>
+            </div>
           ) : (
-            <div className="space-y-2.5">
+            <div className="space-y-3">
               {appointments.map((a) => {
                 const srv = services.find((s) => s.id === a.service_id);
                 const brb = barbers.find((b) => b.id === a.barber_id);
                 return (
                   <div
                     key={a.id}
-                    className="flex flex-wrap justify-between items-center gap-3 p-3.5 rounded-xl bg-zinc-950 border border-zinc-800"
+                    className="flex flex-wrap justify-between items-center gap-3 p-4 rounded-2xl bg-zinc-950/90 border border-zinc-800/90 hover:border-zinc-700 transition"
                   >
-                    <div>
-                      <p className="font-bold text-sm text-white">
-                        {a.client_name}{' '}
-                        <span className="text-xs font-normal text-zinc-500">• {a.client_phone}</span>
-                      </p>
-                      <p className="text-xs text-zinc-400 mt-0.5">
-                        {srv?.name || 'Serviço'} {brb ? `• Profissional: ${brb.name}` : ''} •{' '}
-                        <strong className="text-zinc-200">{a.date} às {a.time}</strong>
-                      </p>
+                    <div className="flex items-center gap-3.5">
+                      <div className="px-3 py-2 rounded-xl bg-zinc-900 border border-zinc-800 text-center shrink-0">
+                        <p className="text-xs font-black text-amber-400">{a.time?.slice(0, 5)}</p>
+                        <p className="text-[10px] text-zinc-500">{a.date}</p>
+                      </div>
+                      <div>
+                        <p className="font-bold text-sm text-white">
+                          {a.client_name}{' '}
+                          <span className="text-xs font-normal text-zinc-500">• {a.client_phone}</span>
+                        </p>
+                        <p className="text-xs text-zinc-400 mt-0.5">
+                          <span className="text-zinc-200 font-semibold">{srv?.name || 'Serviço'}</span>
+                          {brb ? ` • Barbeiro: ${brb.name}` : ''}
+                        </p>
+                      </div>
                     </div>
 
                     <div className="flex items-center gap-2">
-                      <span className="px-2.5 py-1 rounded-lg bg-zinc-900 border border-zinc-800 text-amber-400 text-xs font-bold">
+                      <span className="px-3 py-1.5 rounded-xl bg-zinc-900 border border-zinc-800 text-amber-400 text-xs font-black">
                         R$ {Number(a.price_snapshot).toFixed(2)}
                       </span>
 
@@ -1249,23 +1500,23 @@ function OwnerDashboardShell({
                         <>
                           <button
                             onClick={() => updateAppointmentStatus(a.id, 'completed')}
-                            className="px-3 py-1.5 rounded-lg bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-xs font-bold hover:bg-emerald-500/30"
+                            className="px-3.5 py-1.5 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-xs font-bold hover:bg-emerald-500/30 transition"
                           >
                             Concluir
                           </button>
                           <button
                             onClick={() => updateAppointmentStatus(a.id, 'cancelled')}
-                            className="px-2.5 py-1.5 rounded-lg bg-rose-500/15 text-rose-400 text-xs font-bold hover:bg-rose-500/25"
+                            className="px-3 py-1.5 rounded-xl bg-rose-500/15 text-rose-400 text-xs font-bold hover:bg-rose-500/25 transition"
                           >
                             Cancelar
                           </button>
                         </>
                       ) : (
                         <span
-                          className={`px-2.5 py-1 rounded-full text-xs font-bold ${
+                          className={`px-3 py-1 rounded-full text-xs font-bold ${
                             a.status === 'completed'
-                              ? 'bg-emerald-500/15 text-emerald-400'
-                              : 'bg-rose-500/15 text-rose-400'
+                              ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/20'
+                              : 'bg-rose-500/15 text-rose-400 border border-rose-500/20'
                           }`}
                         >
                           {a.status === 'completed' ? 'Concluído' : 'Cancelado'}
@@ -1280,34 +1531,35 @@ function OwnerDashboardShell({
         </div>
       )}
 
+      {/* ABA 2: SERVIÇOS */}
       {activeTab === 'servicos' && (
-        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5">
+        <div className="bg-zinc-900/80 backdrop-blur border border-zinc-800 rounded-3xl p-6">
           <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
             <div>
-              <h2 className="font-bold text-base text-white flex items-center gap-2">
+              <h2 className="font-black text-base text-white flex items-center gap-2">
                 <Scissors className="w-4 h-4 text-amber-400" /> Catálogo de Serviços
               </h2>
               <p className="text-xs text-zinc-400 mt-0.5">
-                Edite os valores dos serviços principais ou adicione novos pacotes
+                Gerencie preços e tempos de atendimento exibidos na sua página exclusiva
               </p>
             </div>
             <button
               type="button"
               onClick={handleSeedDefaultServices}
-              className="px-3 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-amber-400 text-xs font-bold"
+              className="px-3.5 py-2 rounded-xl bg-zinc-950 border border-zinc-800 hover:border-amber-500/40 text-amber-400 text-xs font-bold transition"
             >
               + Restaurar Serviços Padrão
             </button>
           </div>
 
-          <form onSubmit={handleAddService} className="grid grid-cols-1 sm:grid-cols-4 gap-2.5 mb-5">
+          <form onSubmit={handleAddService} className="grid grid-cols-1 sm:grid-cols-4 gap-2.5 mb-6">
             <input
               type="text"
               required
               placeholder="Nome do serviço (ex: Corte Navalhado)"
               value={srvName}
               onChange={(e) => setSrvName(e.target.value)}
-              className="sm:col-span-2 px-3.5 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-xs text-white"
+              className="sm:col-span-2 px-4 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-xs text-white focus:border-amber-500 focus:outline-none"
             />
             <input
               type="number"
@@ -1316,7 +1568,7 @@ function OwnerDashboardShell({
               placeholder="Preço (R$)"
               value={srvPrice}
               onChange={(e) => setSrvPrice(e.target.value)}
-              className="px-3.5 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-xs text-white"
+              className="px-4 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-xs text-white focus:border-amber-500 focus:outline-none"
             />
             <div className="flex gap-2">
               <input
@@ -1328,19 +1580,24 @@ function OwnerDashboardShell({
               />
               <button
                 type="submit"
-                className="flex-1 py-2.5 rounded-xl bg-amber-500 text-zinc-950 font-bold text-xs flex items-center justify-center gap-1"
+                className="flex-1 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-zinc-950 font-black text-xs flex items-center justify-center gap-1 transition"
               >
                 <Plus className="w-4 h-4" /> Adicionar
               </button>
             </div>
           </form>
 
-          <div className="divide-y divide-zinc-800 border border-zinc-800 rounded-xl overflow-hidden">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {services.map((s) => (
-              <div key={s.id} className="flex flex-wrap items-center justify-between gap-3 p-3.5 bg-zinc-950">
+              <div
+                key={s.id}
+                className="flex items-center justify-between gap-3 p-4 rounded-2xl bg-zinc-950/90 border border-zinc-800/90"
+              >
                 <div>
                   <p className="font-bold text-sm text-white">{s.name}</p>
-                  <p className="text-xs text-zinc-500">Duração estimada: {s.duration} min</p>
+                  <p className="text-xs text-zinc-500 mt-0.5 flex items-center gap-1">
+                    <Clock className="w-3 h-3" /> {s.duration} min
+                  </p>
                 </div>
 
                 <div className="flex items-center gap-2">
@@ -1362,22 +1619,20 @@ function OwnerDashboardShell({
                     </>
                   ) : (
                     <>
-                      <span className="text-sm font-black text-amber-400 mr-2">
+                      <span className="text-sm font-black text-amber-400 mr-1">
                         R$ {Number(s.price).toFixed(2)}
                       </span>
                       <button
                         onClick={() => { setEditingServiceId(s.id); setEditPrice(s.price); }}
-                        className="p-1.5 rounded-lg bg-zinc-900 text-zinc-400 hover:text-white"
-                        title="Editar preço"
+                        className="p-2 rounded-xl bg-zinc-900 text-zinc-400 hover:text-white transition"
                       >
-                        <Edit3 className="w-4 h-4" />
+                        <Edit3 className="w-3.5 h-3.5" />
                       </button>
                       <button
                         onClick={() => handleDeleteService(s.id)}
-                        className="p-1.5 rounded-lg bg-zinc-900 text-rose-400 hover:bg-rose-500/20"
-                        title="Remover serviço"
+                        className="p-2 rounded-xl bg-zinc-900 text-rose-400 hover:bg-rose-500/20 transition"
                       >
-                        <Trash2 className="w-4 h-4" />
+                        <Trash2 className="w-3.5 h-3.5" />
                       </button>
                     </>
                   )}
@@ -1388,27 +1643,28 @@ function OwnerDashboardShell({
         </div>
       )}
 
+      {/* ABA 3: BARBEIROS */}
       {activeTab === 'barbeiros' && (
-        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5">
-          <h2 className="font-bold text-base text-white mb-4 flex items-center gap-2">
-            <Users className="w-4 h-4 text-amber-400" /> Equipe de Profissionais & Percentual de Comissão
+        <div className="bg-zinc-900/80 backdrop-blur border border-zinc-800 rounded-3xl p-6">
+          <h2 className="font-black text-base text-white mb-4 flex items-center gap-2">
+            <Users className="w-4 h-4 text-amber-400" /> Equipe de Profissionais & Comissões
           </h2>
 
-          <form onSubmit={handleAddBarber} className="grid grid-cols-1 sm:grid-cols-4 gap-2.5 mb-5">
+          <form onSubmit={handleAddBarber} className="grid grid-cols-1 sm:grid-cols-4 gap-2.5 mb-6">
             <input
               type="text"
               required
               placeholder="Nome do barbeiro"
               value={barberName}
               onChange={(e) => setBarberName(e.target.value)}
-              className="px-3.5 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-xs text-white"
+              className="px-4 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-xs text-white"
             />
             <input
               type="text"
               placeholder="Especialidade (ex: Barbeiro Sênior)"
               value={barberRole}
               onChange={(e) => setBarberRole(e.target.value)}
-              className="px-3.5 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-xs text-white"
+              className="px-4 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-xs text-white"
             />
             <input
               type="number"
@@ -1418,120 +1674,131 @@ function OwnerDashboardShell({
               placeholder="Comissão (%)"
               value={barberCommission}
               onChange={(e) => setBarberCommission(e.target.value)}
-              className="px-3.5 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-xs text-white"
+              className="px-4 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-xs text-white"
             />
             <button
               type="submit"
-              className="py-2.5 rounded-xl bg-amber-500 text-zinc-950 font-bold text-xs flex items-center justify-center gap-1"
+              className="py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-zinc-950 font-black text-xs flex items-center justify-center gap-1 transition"
             >
               <Plus className="w-4 h-4" /> Cadastrar Barbeiro
             </button>
           </form>
 
           {barbers.length === 0 ? (
-            <p className="text-sm text-zinc-400 py-6 text-center">
-              Nenhum barbeiro cadastrado. Adicione os profissionais acima para liberar a escolha no agendamento.
+            <p className="text-sm text-zinc-400 py-8 text-center border border-dashed border-zinc-800 rounded-2xl">
+              Nenhum barbeiro cadastrado ainda.
             </p>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {barbers.map((b) => (
-                <div
-                  key={b.id}
-                  className="flex items-center justify-between p-4 rounded-xl bg-zinc-950 border border-zinc-800"
-                >
-                  <div>
-                    <p className="font-bold text-sm text-white">{b.name}</p>
-                    <p className="text-xs text-zinc-400">{b.role_title}</p>
-                    <span className="inline-block mt-1.5 px-2 py-0.5 rounded bg-amber-500/15 text-amber-400 text-[11px] font-bold">
-                      Comissão: {b.commission_percent}%
-                    </span>
-                  </div>
-                  <button
-                    onClick={() => handleDeleteBarber(b.id)}
-                    className="p-2 rounded-lg bg-zinc-900 text-rose-400 hover:bg-rose-500/20"
+              {barbers.map((b) => {
+                const initials = b.name.split(' ').map((n) => n[0]).slice(0, 2).join('').toUpperCase();
+                return (
+                  <div
+                    key={b.id}
+                    className="flex items-center justify-between p-4 rounded-2xl bg-zinc-950/90 border border-zinc-800/90"
                   >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </div>
-              ))}
+                    <div className="flex items-center gap-3.5">
+                      <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-amber-400 to-amber-600 text-zinc-950 font-black text-sm flex items-center justify-center">
+                        {initials}
+                      </div>
+                      <div>
+                        <p className="font-bold text-sm text-white">{b.name}</p>
+                        <p className="text-xs text-zinc-400">{b.role_title}</p>
+                        <span className="inline-block mt-1 px-2 py-0.5 rounded-md bg-amber-500/15 text-amber-400 text-[11px] font-bold">
+                          Comissão: {b.commission_percent}%
+                        </span>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => handleDeleteBarber(b.id)}
+                      className="p-2 rounded-xl bg-zinc-900 text-rose-400 hover:bg-rose-500/20 transition"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
       )}
 
+      {/* ABA 4: FINANCEIRO MENSAL COM GRÁFICO COMPARATIVO */}
       {activeTab === 'financeiro' && (
         <div className="space-y-6">
-          <div className="flex flex-wrap items-center justify-between gap-3 bg-zinc-900 border border-zinc-800 rounded-2xl p-4">
-            <h2 className="font-bold text-base text-white flex items-center gap-2">
-              <TrendingUp className="w-4 h-4 text-amber-400" /> Fechamento e Rendimento Mensal
-            </h2>
+          <div className="flex flex-wrap items-center justify-between gap-3 bg-zinc-900/80 backdrop-blur border border-zinc-800 rounded-3xl p-5">
+            <div>
+              <h2 className="font-black text-base text-white flex items-center gap-2">
+                <BarChart3 className="w-4 h-4 text-amber-400" /> Fechamento e Rendimento Mensal
+              </h2>
+              <p className="text-xs text-zinc-400 mt-0.5">
+                Visão consolidada de entradas, repasse de equipe e custos operacionais
+              </p>
+            </div>
             <div className="flex items-center gap-2">
-              <span className="text-xs text-zinc-400">Mês de Referência:</span>
+              <span className="text-xs text-zinc-400">Competência:</span>
               <input
                 type="month"
                 value={selectedMonth}
                 onChange={(e) => setSelectedMonth(e.target.value)}
-                className="px-3 py-1.5 rounded-xl bg-zinc-950 border border-zinc-800 text-xs text-white"
+                className="px-3.5 py-2 rounded-xl bg-zinc-950 border border-zinc-800 text-xs font-bold text-white"
               />
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4">
-              <p className="text-xs text-zinc-400">Faturamento Bruto ({selectedMonth})</p>
-              <p className="text-2xl font-black text-white mt-1">R$ {grossRevenue.toFixed(2)}</p>
-              <p className="text-[11px] text-zinc-500 mt-1">
-                Serviços: R$ {servicesRevenue.toFixed(2)} • Produtos: R$ {productsRevenue.toFixed(2)}
-              </p>
+          {/* GRÁFICO VISUAL DE COMPOSIÇÃO DO MÊS */}
+          <div className="bg-zinc-900/80 backdrop-blur border border-zinc-800 rounded-3xl p-6">
+            <h3 className="font-bold text-xs uppercase tracking-wider text-zinc-400 mb-5">
+              Comparativo Financeiro ({selectedMonth})
+            </h3>
+            <div className="space-y-4">
+              {[
+                { label: 'Faturamento Bruto (Serviços + Produtos)', value: grossRevenue, color: 'bg-amber-400', text: 'text-white' },
+                { label: 'Comissões da Equipe', value: totalCommissions, color: 'bg-amber-600', text: 'text-amber-400' },
+                { label: 'Despesas Operacionais', value: totalExpenses, color: 'bg-rose-500', text: 'text-rose-400' },
+                { label: 'Rendimento Líquido da Barbearia', value: Math.max(0, netProfit), color: 'bg-emerald-400', text: 'text-emerald-400' },
+              ].map((bar) => (
+                <div key={bar.label}>
+                  <div className="flex justify-between text-xs mb-1.5">
+                    <span className="text-zinc-300 font-semibold">{bar.label}</span>
+                    <span className={`font-black ${bar.text}`}>R$ {bar.value.toFixed(2)}</span>
+                  </div>
+                  <div className="w-full h-2.5 rounded-full bg-zinc-950 overflow-hidden border border-zinc-800/80">
+                    <div
+                      className={`h-full rounded-full ${bar.color} transition-all duration-500`}
+                      style={{ width: `${Math.min(100, (bar.value / maxChartVal) * 100)}%` }}
+                    />
+                  </div>
+                </div>
+              ))}
             </div>
-
-            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4">
-              <p className="text-xs text-zinc-400">Comissões da Equipe</p>
-              <p className="text-2xl font-black text-amber-400 mt-1">- R$ {totalCommissions.toFixed(2)}</p>
-              <p className="text-[11px] text-zinc-500 mt-1">
-                Sobre {monthCompletedApts.length} atendimentos concluídos
-              </p>
-            </div>
-
-            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4">
-              <p className="text-xs text-zinc-400">Despesas Operacionais</p>
-              <p className="text-2xl font-black text-rose-400 mt-1">- R$ {totalExpenses.toFixed(2)}</p>
-              <p className="text-[11px] text-zinc-500 mt-1">{monthExpenses.length} lançamentos de custo</p>
-            </div>
-
-            <div className="bg-zinc-900 border border-emerald-500/30 rounded-2xl p-4">
-              <p className="text-xs text-emerald-400 font-semibold">Rendimento Líquido da Barbearia</p>
-              <p className={`text-2xl font-black mt-1 ${netProfit >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                R$ {netProfit.toFixed(2)}
-              </p>
-              <p className="text-[11px] text-zinc-400 mt-1">
-                Previsto em agenda aberta: +R$ {projectedRevenue.toFixed(2)}
-              </p>
-            </div>
+            <p className="text-[11px] text-zinc-500 mt-4 pt-3 border-t border-zinc-800/80">
+              Agenda futura prevista no mês: <strong className="text-zinc-300">+ R$ {projectedRevenue.toFixed(2)}</strong> ({monthScheduledApts.length} horários aguardando conclusão)
+            </p>
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5">
-              <h3 className="font-bold text-sm text-white mb-3">Comissões por Barbeiro no Mês</h3>
+            <div className="bg-zinc-900/80 backdrop-blur border border-zinc-800 rounded-3xl p-6">
+              <h3 className="font-bold text-sm text-white mb-4">Comissões por Barbeiro</h3>
               {barberCommissions.length === 0 ? (
                 <p className="text-xs text-zinc-400">Nenhum barbeiro cadastrado.</p>
               ) : (
-                <div className="space-y-2 text-xs">
+                <div className="space-y-2.5 text-xs">
                   {barberCommissions.map((b) => (
-                    <div key={b.id} className="flex justify-between items-center p-3 rounded-xl bg-zinc-950 border border-zinc-800">
+                    <div key={b.id} className="flex justify-between items-center p-3.5 rounded-2xl bg-zinc-950 border border-zinc-800">
                       <div>
                         <p className="font-bold text-white">{b.name} ({b.commission_percent}%)</p>
-                        <p className="text-zinc-500">{b.count} cortes • Produziu R$ {b.totalGenerated.toFixed(2)}</p>
+                        <p className="text-zinc-500 mt-0.5">{b.count} cortes • Gerou R$ {b.totalGenerated.toFixed(2)}</p>
                       </div>
-                      <span className="font-black text-amber-400">R$ {b.commissionDue.toFixed(2)}</span>
+                      <span className="font-black text-amber-400 text-sm">R$ {b.commissionDue.toFixed(2)}</span>
                     </div>
                   ))}
                 </div>
               )}
             </div>
 
-            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5">
-              <h3 className="font-bold text-sm text-white mb-3">Custos e Despesas do Mês</h3>
+            <div className="bg-zinc-900/80 backdrop-blur border border-zinc-800 rounded-3xl p-6">
+              <h3 className="font-bold text-sm text-white mb-4">Custos e Despesas do Mês</h3>
               <form onSubmit={handleAddExpense} className="flex flex-wrap gap-2 mb-4">
                 <input
                   type="text"
@@ -1539,7 +1806,7 @@ function OwnerDashboardShell({
                   placeholder="Descrição (ex: Aluguel, Energia, Lâminas)"
                   value={expDesc}
                   onChange={(e) => setExpDesc(e.target.value)}
-                  className="flex-1 min-w-[160px] px-3 py-2 rounded-xl bg-zinc-950 border border-zinc-800 text-xs text-white"
+                  className="flex-1 min-w-[160px] px-3.5 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-xs text-white"
                 />
                 <input
                   type="number"
@@ -1548,18 +1815,18 @@ function OwnerDashboardShell({
                   placeholder="Valor R$"
                   value={expAmount}
                   onChange={(e) => setExpAmount(e.target.value)}
-                  className="w-28 px-3 py-2 rounded-xl bg-zinc-950 border border-zinc-800 text-xs text-white"
+                  className="w-28 px-3.5 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-xs text-white"
                 />
-                <button type="submit" className="px-3.5 py-2 rounded-xl bg-amber-500 text-zinc-950 font-bold text-xs">
+                <button type="submit" className="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-zinc-950 font-black text-xs">
                   Lançar
                 </button>
               </form>
 
               <div className="space-y-2 text-xs">
                 {monthExpenses.map((e) => (
-                  <div key={e.id} className="flex justify-between items-center p-2.5 rounded-xl bg-zinc-950 border border-zinc-800">
+                  <div key={e.id} className="flex justify-between items-center p-3 rounded-2xl bg-zinc-950 border border-zinc-800">
                     <span className="text-zinc-200 font-semibold">{e.description}</span>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2.5">
                       <span className="text-rose-400 font-bold">- R$ {Number(e.amount).toFixed(2)}</span>
                       <button onClick={() => handleDeleteExpense(e.id)} className="text-zinc-500 hover:text-rose-400">
                         <Trash2 className="w-3.5 h-3.5" />
@@ -1573,27 +1840,28 @@ function OwnerDashboardShell({
         </div>
       )}
 
+      {/* ABA 5: ESTOQUE */}
       {activeTab === 'estoque' && (
-        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5">
+        <div className="bg-zinc-900/80 backdrop-blur border border-zinc-800 rounded-3xl p-6">
           <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
             <div>
-              <h2 className="font-bold text-base text-white flex items-center gap-2">
+              <h2 className="font-black text-base text-white flex items-center gap-2">
                 <Package className="w-4 h-4 text-amber-400" /> Estoque de Produtos para Venda
               </h2>
               <p className="text-xs text-zinc-400 mt-0.5">
-                {totalStockItems} itens em estoque • Valor potencial de revenda: R$ {totalStockValue.toFixed(2)}
+                {totalStockItems} itens físicos • Potencial em prateleira: R$ {totalStockValue.toFixed(2)}
               </p>
             </div>
           </div>
 
-          <form onSubmit={handleAddProduct} className="grid grid-cols-1 sm:grid-cols-5 gap-2.5 mb-5">
+          <form onSubmit={handleAddProduct} className="grid grid-cols-1 sm:grid-cols-5 gap-2.5 mb-6">
             <input
               type="text"
               required
               placeholder="Produto (ex: Pomada Matte)"
               value={prodName}
               onChange={(e) => setProdName(e.target.value)}
-              className="sm:col-span-2 px-3 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-xs text-white"
+              className="sm:col-span-2 px-3.5 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-xs text-white"
             />
             <input
               type="number"
@@ -1601,7 +1869,7 @@ function OwnerDashboardShell({
               placeholder="Custo (R$)"
               value={prodCost}
               onChange={(e) => setProdCost(e.target.value)}
-              className="px-3 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-xs text-white"
+              className="px-3.5 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-xs text-white"
             />
             <input
               type="number"
@@ -1610,7 +1878,7 @@ function OwnerDashboardShell({
               placeholder="Venda (R$)"
               value={prodPrice}
               onChange={(e) => setProdPrice(e.target.value)}
-              className="px-3 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-xs text-white"
+              className="px-3.5 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-xs text-white"
             />
             <div className="flex gap-2">
               <input
@@ -1623,27 +1891,27 @@ function OwnerDashboardShell({
               />
               <button
                 type="submit"
-                className="flex-1 py-2.5 rounded-xl bg-amber-500 text-zinc-950 font-bold text-xs flex items-center justify-center gap-1"
+                className="flex-1 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-zinc-950 font-black text-xs flex items-center justify-center gap-1"
               >
                 <Plus className="w-4 h-4" /> Salvar
               </button>
             </div>
           </form>
 
-          <div className="overflow-x-auto border border-zinc-800 rounded-xl">
+          <div className="overflow-x-auto border border-zinc-800 rounded-2xl">
             <table className="w-full text-left text-xs">
-              <thead className="bg-zinc-950 border-b border-zinc-800 text-zinc-400 uppercase">
+              <thead className="bg-zinc-950 border-b border-zinc-800 text-zinc-400 uppercase tracking-wider text-[11px]">
                 <tr>
-                  <th className="py-3 px-4">Produto</th>
-                  <th className="py-3 px-4">Custo / Venda</th>
-                  <th className="py-3 px-4">Saldo em Estoque</th>
-                  <th className="py-3 px-4 text-right">Movimentação</th>
+                  <th className="py-3.5 px-4">Produto</th>
+                  <th className="py-3.5 px-4">Custo / Venda</th>
+                  <th className="py-3.5 px-4">Saldo</th>
+                  <th className="py-3.5 px-4 text-right">Venda Balcão</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-zinc-800 bg-zinc-950/60">
+              <tbody className="divide-y divide-zinc-800/80 bg-zinc-950/60">
                 {products.map((p) => (
                   <tr key={p.id}>
-                    <td className="py-3 px-4">
+                    <td className="py-3.5 px-4">
                       <p className="font-bold text-white text-sm">{p.name}</p>
                       {p.stock_qty <= p.min_stock && (
                         <span className="inline-flex items-center gap-1 text-[11px] text-amber-400 mt-0.5">
@@ -1651,12 +1919,12 @@ function OwnerDashboardShell({
                         </span>
                       )}
                     </td>
-                    <td className="py-3 px-4">
+                    <td className="py-3.5 px-4">
                       <p className="text-zinc-500">Custo: R$ {Number(p.cost_price).toFixed(2)}</p>
                       <p className="text-amber-400 font-bold">Venda: R$ {Number(p.sale_price).toFixed(2)}</p>
                     </td>
-                    <td className="py-3 px-4">
-                      <div className="inline-flex items-center gap-2 bg-zinc-900 border border-zinc-800 rounded-lg px-2 py-1">
+                    <td className="py-3.5 px-4">
+                      <div className="inline-flex items-center gap-2 bg-zinc-900 border border-zinc-800 rounded-xl px-2.5 py-1">
                         <button
                           onClick={() => handleAdjustStock(p, -1)}
                           className="px-1.5 text-zinc-400 hover:text-white font-bold"
@@ -1672,17 +1940,17 @@ function OwnerDashboardShell({
                         </button>
                       </div>
                     </td>
-                    <td className="py-3 px-4 text-right space-x-2">
+                    <td className="py-3.5 px-4 text-right space-x-2">
                       <button
                         onClick={() => handleSellProduct(p)}
                         disabled={p.stock_qty <= 0}
-                        className="px-3 py-1.5 rounded-lg bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-bold inline-flex items-center gap-1 disabled:opacity-40"
+                        className="px-3.5 py-2 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-bold inline-flex items-center gap-1.5 disabled:opacity-40 hover:bg-emerald-500/30 transition"
                       >
                         <ShoppingBag className="w-3.5 h-3.5" /> Vender 1 un.
                       </button>
                       <button
                         onClick={() => handleDeleteProduct(p.id)}
-                        className="p-1.5 rounded-lg bg-zinc-900 text-rose-400 hover:bg-rose-500/20"
+                        className="p-2 rounded-xl bg-zinc-900 text-rose-400 hover:bg-rose-500/20 transition"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
