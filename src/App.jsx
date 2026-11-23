@@ -35,14 +35,10 @@ export default function App() {
   const [barbers, setBarbers] = useState([]);
   const [appointments, setAppointments] = useState([]);
 
-  // Modal de Login / Cadastro
-  const [showAuthModal, setShowAuthModal] = useState(false);
-  const [authMode, setAuthMode] = useState('login'); // 'login' | 'register'
+  // Modal de Login (restrito a contas já criadas por você)
+  const [showLoginModal, setShowLoginModal] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [fullName, setFullName] = useState('');
-  const [shopName, setShopName] = useState('');
-  const [phone, setPhone] = useState('');
   const [authLoading, setAuthLoading] = useState(false);
   const [authError, setAuthError] = useState('');
   const [toast, setToast] = useState(null);
@@ -52,7 +48,6 @@ export default function App() {
     setTimeout(() => setToast(null), 3500);
   };
 
-  // Carrega dados gerais e sessão ativa
   const loadPlatformData = async (currentUser = null) => {
     try {
       const [{ data: tenantsData }, { data: servicesData }, { data: barbersData }, { data: aptData }] =
@@ -99,7 +94,6 @@ export default function App() {
     return () => listener.subscription.unsubscribe();
   }, []);
 
-  // Login com e-mail e senha
   const handleLogin = async (e) => {
     e.preventDefault();
     setAuthError('');
@@ -110,52 +104,12 @@ export default function App() {
         password,
       });
       if (error) throw error;
-      setShowAuthModal(false);
+      setShowLoginModal(false);
+      setEmail('');
+      setPassword('');
       notify('Acesso realizado com sucesso!');
     } catch (err) {
       setAuthError(err.message === 'Invalid login credentials' ? 'E-mail ou senha incorretos.' : err.message);
-    } finally {
-      setAuthLoading(false);
-    }
-  };
-
-  // Cadastro de nova barbearia + criação automática de acesso
-  const handleRegister = async (e) => {
-    e.preventDefault();
-    setAuthError('');
-    if (!shopName.trim() || !fullName.trim()) {
-      setAuthError('Preencha seu nome e o nome da barbearia.');
-      return;
-    }
-    setAuthLoading(true);
-    try {
-      const { data, error } = await supabase.auth.signUp({
-        email: email.trim(),
-        password,
-        options: {
-          data: {
-            full_name: fullName.trim(),
-            shop_name: shopName.trim(),
-            phone: phone.trim(),
-            role: 'owner',
-          },
-        },
-      });
-      if (error) throw error;
-
-      // Garante login imediato caso a sessão não venha preenchida
-      if (!data.session) {
-        const { error: loginErr } = await supabase.auth.signInWithPassword({
-          email: email.trim(),
-          password,
-        });
-        if (loginErr) throw loginErr;
-      }
-
-      setShowAuthModal(false);
-      notify(`Barbearia "${shopName}" criada! Bem-vindo ao painel.`);
-    } catch (err) {
-      setAuthError(err.message || 'Erro ao criar conta.');
     } finally {
       setAuthLoading(false);
     }
@@ -189,7 +143,6 @@ export default function App() {
         </div>
       )}
 
-      {/* Barra de Suporte Master quando Super Admin entra em uma barbearia */}
       {impersonatedTenantId && (
         <div className="bg-amber-500 text-zinc-950 px-4 py-2 text-xs font-bold flex items-center justify-between sticky top-0 z-50">
           <span className="flex items-center gap-2">
@@ -205,20 +158,19 @@ export default function App() {
         </div>
       )}
 
-      {/* ROTA 1: VITRINE PÚBLICA E AGENDAMENTO (Usuário não logado) */}
+      {/* ROTA 1: VITRINE PÚBLICA E AGENDAMENTO (Sem auto-cadastro aberto) */}
       {!authUser && (
         <PublicLandingAndBooking
           tenants={tenants.filter((t) => t.status !== 'blocked')}
           services={services}
           barbers={barbers}
-          onOpenLogin={() => { setAuthMode('login'); setShowAuthModal(true); }}
-          onOpenRegister={() => { setAuthMode('register'); setShowAuthModal(true); }}
+          onOpenLogin={() => { setAuthError(''); setShowLoginModal(true); }}
           onAppointmentCreated={() => loadPlatformData(null)}
           notify={notify}
         />
       )}
 
-      {/* ROTA 2: CONSOLE SUPER ADMIN (Você visualiza e gerencia tudo) */}
+      {/* ROTA 2: CONSOLE SUPER ADMIN (Único local onde novas barbearias são criadas) */}
       {authUser && profile?.role === 'super_admin' && !impersonatedTenantId && (
         <SuperAdminConsole
           tenants={tenants}
@@ -243,7 +195,6 @@ export default function App() {
         />
       )}
 
-      {/* FALLBACK CASO O PERFIL AINDA NÃO TENHA CARREGADO */}
       {authUser && !profile && !impersonatedTenantId && (
         <div className="min-h-screen flex flex-col items-center justify-center p-4 text-center">
           <p className="text-zinc-300 font-semibold mb-4">Carregando permissões da conta...</p>
@@ -253,90 +204,24 @@ export default function App() {
         </div>
       )}
 
-      {/* MODAL ÚNICO DE LOGIN E CADASTRO */}
-      {showAuthModal && (
+      {/* MODAL APENAS DE LOGIN (Sem opção de criar conta pública) */}
+      {showLoginModal && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="w-full max-w-md bg-zinc-900 border border-zinc-800 rounded-2xl p-6 shadow-2xl">
             <div className="flex items-center justify-between mb-5">
-              <BrandLogo subtitle={authMode === 'login' ? 'Acesso ao Painel' : 'Cadastre sua Barbearia'} />
+              <BrandLogo subtitle="Acesso Restrito • Parceiros e Admin" />
               <button
-                onClick={() => setShowAuthModal(false)}
+                onClick={() => setShowLoginModal(false)}
                 className="p-2 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800"
               >
                 <XCircle className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="grid grid-cols-2 gap-2 p-1 rounded-xl bg-zinc-950 border border-zinc-800 mb-5">
-              <button
-                type="button"
-                onClick={() => { setAuthMode('login'); setAuthError(''); }}
-                className={`py-2 rounded-lg text-xs font-bold transition ${
-                  authMode === 'login' ? 'bg-amber-500 text-zinc-950' : 'text-zinc-400 hover:text-white'
-                }`}
-              >
-                Já tenho conta
-              </button>
-              <button
-                type="button"
-                onClick={() => { setAuthMode('register'); setAuthError(''); }}
-                className={`py-2 rounded-lg text-xs font-bold transition ${
-                  authMode === 'register' ? 'bg-amber-500 text-zinc-950' : 'text-zinc-400 hover:text-white'
-                }`}
-              >
-                Criar Conta Grátis
-              </button>
-            </div>
-
-            <form onSubmit={authMode === 'login' ? handleLogin : handleRegister} className="space-y-3.5">
-              {authMode === 'register' && (
-                <>
-                  <div>
-                    <label className="block text-xs font-semibold text-zinc-400 uppercase mb-1">
-                      Nome da Barbearia
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      value={shopName}
-                      onChange={(e) => setShopName(e.target.value)}
-                      placeholder="Ex: Barbearia Navalha de Ouro"
-                      className="w-full px-3.5 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-sm text-white focus:outline-none focus:border-amber-500"
-                    />
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-xs font-semibold text-zinc-400 uppercase mb-1">
-                        Seu Nome
-                      </label>
-                      <input
-                        type="text"
-                        required
-                        value={fullName}
-                        onChange={(e) => setFullName(e.target.value)}
-                        placeholder="Carlos Silva"
-                        className="w-full px-3.5 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-sm text-white focus:outline-none focus:border-amber-500"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-semibold text-zinc-400 uppercase mb-1">
-                        WhatsApp
-                      </label>
-                      <input
-                        type="text"
-                        value={phone}
-                        onChange={(e) => setPhone(e.target.value)}
-                        placeholder="(82) 99999-0000"
-                        className="w-full px-3.5 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-sm text-white focus:outline-none focus:border-amber-500"
-                      />
-                    </div>
-                  </div>
-                </>
-              )}
-
+            <form onSubmit={handleLogin} className="space-y-4">
               <div>
                 <label className="block text-xs font-semibold text-zinc-400 uppercase mb-1">
-                  E-mail
+                  E-mail de Acesso
                 </label>
                 <input
                   type="email"
@@ -355,10 +240,9 @@ export default function App() {
                 <input
                   type="password"
                   required
-                  minLength={6}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  placeholder="Mínimo 6 caracteres"
+                  placeholder="••••••••"
                   className="w-full px-3.5 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-sm text-white focus:outline-none focus:border-amber-500"
                 />
               </div>
@@ -375,7 +259,7 @@ export default function App() {
                 className="w-full py-3 rounded-xl bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-zinc-950 font-bold text-sm transition flex items-center justify-center gap-2"
               >
                 {authLoading && <Loader2 className="w-4 h-4 animate-spin" />}
-                {authMode === 'login' ? 'Entrar no Painel' : 'Criar Conta e Acessar Painel'}
+                Entrar no Painel
               </button>
             </form>
           </div>
@@ -386,14 +270,13 @@ export default function App() {
 }
 
 /* ============================================================================
-   1. TELA PÚBLICA DO USUÁRIO (VITRINE + AGENDAMENTO REAL NO SUPABASE)
+   1. TELA PÚBLICA DO USUÁRIO (AGENDAMENTO ONLINE + BOTÃO DE LOGIN PARCEIRO)
    ============================================================================ */
 function PublicLandingAndBooking({
   tenants,
   services,
   barbers,
   onOpenLogin,
-  onOpenRegister,
   onAppointmentCreated,
   notify,
 }) {
@@ -445,20 +328,12 @@ function PublicLandingAndBooking({
     <div className="max-w-5xl mx-auto px-4 py-6">
       <header className="flex flex-wrap items-center justify-between gap-4 pb-8">
         <BrandLogo />
-        <div className="flex items-center gap-2.5">
-          <button
-            onClick={onOpenRegister}
-            className="px-4 py-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-700 text-white text-xs sm:text-sm font-bold transition"
-          >
-            Cadastrar Barbearia
-          </button>
-          <button
-            onClick={onOpenLogin}
-            className="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-zinc-950 text-xs sm:text-sm font-bold flex items-center gap-2 transition"
-          >
-            <Shield className="w-4 h-4" /> Entrar no Painel
-          </button>
-        </div>
+        <button
+          onClick={onOpenLogin}
+          className="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-zinc-950 text-xs sm:text-sm font-bold flex items-center gap-2 transition"
+        >
+          <Shield className="w-4 h-4" /> Entrar no Painel
+        </button>
       </header>
 
       <section className="text-center max-w-2xl mx-auto my-8">
@@ -466,23 +341,22 @@ function PublicLandingAndBooking({
           <Sparkles className="w-3.5 h-3.5" /> Plataforma Oficial para Barbearias
         </span>
         <h1 className="text-3xl sm:text-5xl font-black tracking-tight text-white leading-tight">
-          Sua barbearia no piloto automático, do{' '}
-          <span className="text-amber-400">agendamento</span> ao{' '}
-          <span className="text-amber-400">comissionamento</span>.
+          Agende seu horário nas melhores{' '}
+          <span className="text-amber-400">barbearias</span> em segundos.
         </h1>
         <p className="text-zinc-400 text-sm sm:text-base mt-4">
-          Escolha uma unidade ativa abaixo para agendar seu horário ou cadastre sua barbearia gratuitamente.
+          Escolha a unidade credenciada abaixo, selecione o serviço e garanta seu atendimento sem filas.
         </p>
       </section>
 
       <div className="bg-zinc-900/90 border border-zinc-800 rounded-2xl p-6 mt-8">
         <h2 className="text-xs font-bold uppercase tracking-wider text-amber-400 flex items-center gap-2 mb-4">
-          <Store className="w-4 h-4" /> Barbearias Ativas & Agendamento Online
+          <Store className="w-4 h-4" /> Barbearias Credenciadas & Agendamento Online
         </h2>
 
         {tenants.length === 0 ? (
           <p className="text-sm text-zinc-400">
-            Nenhuma unidade pública disponível no momento. Clique em <strong>Cadastrar Barbearia</strong> acima para criar a primeira!
+            Nenhuma barbearia credenciada disponível no momento.
           </p>
         ) : (
           <form onSubmit={handleBook} className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -594,9 +468,50 @@ function PublicLandingAndBooking({
 }
 
 /* ============================================================================
-   2. CONSOLE SUPER ADMIN (VOCÊ VISUALIZA E GERENCIA TODAS AS BARBEARIAS)
+   2. CONSOLE SUPER ADMIN (CADASTRO EXCLUSIVO DE BARBEARIAS POR VOCÊ)
    ============================================================================ */
 function SuperAdminConsole({ tenants, onRefresh, onImpersonate, onLogout, notify }) {
+  const [showNewModal, setShowNewModal] = useState(false);
+  const [shopName, setShopName] = useState('');
+  const [ownerName, setOwnerName] = useState('');
+  const [ownerEmail, setOwnerEmail] = useState('');
+  const [ownerPhone, setOwnerPhone] = useState('');
+  const [ownerPassword, setOwnerPassword] = useState('');
+  const [planId, setPlanId] = useState('pro');
+  const [creating, setCreating] = useState(false);
+  const [formError, setFormError] = useState('');
+
+  const handleCreateBarbershop = async (e) => {
+    e.preventDefault();
+    setFormError('');
+    setCreating(true);
+
+    const { error } = await supabase.rpc('admin_create_barbershop', {
+      p_shop_name: shopName,
+      p_owner_name: ownerName,
+      p_owner_email: ownerEmail,
+      p_owner_phone: ownerPhone,
+      p_password: ownerPassword,
+      p_plan_id: planId,
+    });
+
+    setCreating(false);
+
+    if (error) {
+      setFormError(error.message);
+      return;
+    }
+
+    setShowNewModal(false);
+    setShopName('');
+    setOwnerName('');
+    setOwnerEmail('');
+    setOwnerPhone('');
+    setOwnerPassword('');
+    notify('Barbearia e acesso do proprietário criados com sucesso!');
+    onRefresh();
+  };
+
   const toggleStatus = async (tenant) => {
     const nextStatus = tenant.status === 'blocked' ? 'active' : 'blocked';
     await supabase.from('tenants').update({ status: nextStatus }).eq('id', tenant.id);
@@ -606,31 +521,39 @@ function SuperAdminConsole({ tenants, onRefresh, onImpersonate, onLogout, notify
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-6">
-      <header className="flex items-center justify-between pb-6 border-b border-zinc-800">
+      <header className="flex flex-wrap items-center justify-between gap-4 pb-6 border-b border-zinc-800">
         <div className="flex items-center gap-3">
           <BrandLogo subtitle="Console Master • Super Admin" />
           <span className="px-3 py-1 rounded-full bg-amber-500/15 text-amber-400 text-xs font-bold flex items-center gap-1">
             <Crown className="w-3.5 h-3.5" /> Admin Geral
           </span>
         </div>
-        <button
-          onClick={onLogout}
-          className="px-4 py-2 rounded-xl bg-zinc-900 border border-zinc-800 text-xs font-bold flex items-center gap-2"
-        >
-          <LogOut className="w-4 h-4" /> Sair
-        </button>
+        <div className="flex items-center gap-2.5">
+          <button
+            onClick={() => { setFormError(''); setShowNewModal(true); }}
+            className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-zinc-950 text-xs font-bold flex items-center gap-1.5 transition"
+          >
+            <Plus className="w-4 h-4" /> Nova Barbearia
+          </button>
+          <button
+            onClick={onLogout}
+            className="px-4 py-2 rounded-xl bg-zinc-900 border border-zinc-800 text-xs font-bold flex items-center gap-2"
+          >
+            <LogOut className="w-4 h-4" /> Sair
+          </button>
+        </div>
       </header>
 
       <div className="my-6 bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden">
         <div className="p-4 border-b border-zinc-800 flex items-center justify-between">
-          <h2 className="font-bold text-sm text-white">Barbearias Cadastradas na Plataforma ({tenants.length})</h2>
+          <h2 className="font-bold text-sm text-white">Barbearias Credenciadas ({tenants.length})</h2>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm">
             <thead>
               <tr className="border-b border-zinc-800 text-xs text-zinc-400 uppercase">
                 <th className="py-3 px-4">Barbearia</th>
-                <th className="py-3 px-4">Dono / E-mail</th>
+                <th className="py-3 px-4">Dono / E-mail de Acesso</th>
                 <th className="py-3 px-4">Plano</th>
                 <th className="py-3 px-4">Status</th>
                 <th className="py-3 px-4 text-right">Ações Master</th>
@@ -667,6 +590,126 @@ function SuperAdminConsole({ tenants, onRefresh, onImpersonate, onLogout, notify
           </table>
         </div>
       </div>
+
+      {/* MODAL DE CADASTRO DE BARBEARIA PELO SUPER ADMIN */}
+      {showNewModal && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-md bg-zinc-900 border border-zinc-800 rounded-2xl p-6 shadow-2xl">
+            <div className="flex items-center justify-between mb-5">
+              <BrandLogo subtitle="Cadastrar Nova Unidade e Acesso" />
+              <button
+                onClick={() => setShowNewModal(false)}
+                className="p-2 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800"
+              >
+                <XCircle className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateBarbershop} className="space-y-3.5">
+              <div>
+                <label className="block text-xs font-semibold text-zinc-400 uppercase mb-1">
+                  Nome da Barbearia
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={shopName}
+                  onChange={(e) => setShopName(e.target.value)}
+                  placeholder="Ex: Barbearia Dom Pedro"
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-sm text-white focus:outline-none focus:border-amber-500"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-zinc-400 uppercase mb-1">
+                    Nome do Proprietário
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={ownerName}
+                    onChange={(e) => setOwnerName(e.target.value)}
+                    placeholder="João Silva"
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-sm text-white focus:outline-none focus:border-amber-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-zinc-400 uppercase mb-1">
+                    WhatsApp
+                  </label>
+                  <input
+                    type="text"
+                    value={ownerPhone}
+                    onChange={(e) => setOwnerPhone(e.target.value)}
+                    placeholder="(82) 99999-0000"
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-sm text-white focus:outline-none focus:border-amber-500"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-zinc-400 uppercase mb-1">
+                  Plano Contratado
+                </label>
+                <select
+                  value={planId}
+                  onChange={(e) => setPlanId(e.target.value)}
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-sm text-white focus:outline-none focus:border-amber-500"
+                >
+                  <option value="starter">Starter (1 Cadeira)</option>
+                  <option value="pro">Pro (Equipe Completa)</option>
+                  <option value="enterprise">Enterprise (Multi-unidades)</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-zinc-400 uppercase mb-1">
+                  E-mail de Login do Dono
+                </label>
+                <input
+                  type="email"
+                  required
+                  value={ownerEmail}
+                  onChange={(e) => setOwnerEmail(e.target.value)}
+                  placeholder="dono@barbearia.com"
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-sm text-white focus:outline-none focus:border-amber-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-zinc-400 uppercase mb-1">
+                  Senha Inicial de Acesso
+                </label>
+                <input
+                  type="text"
+                  required
+                  minLength={6}
+                  value={ownerPassword}
+                  onChange={(e) => setOwnerPassword(e.target.value)}
+                  placeholder="Mínimo 6 caracteres"
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-sm text-white focus:outline-none focus:border-amber-500"
+                />
+              </div>
+
+              {formError && (
+                <p className="text-xs text-rose-400 bg-rose-500/10 border border-rose-500/20 p-2.5 rounded-lg">
+                  {formError}
+                </p>
+              )}
+
+              <button
+                type="submit"
+                disabled={creating}
+                className="w-full py-3 rounded-xl bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-zinc-950 font-bold text-sm transition flex items-center justify-center gap-2"
+              >
+                {creating && <Loader2 className="w-4 h-4 animate-spin" />}
+                {creating ? 'Criando Barbearia...' : 'Cadastrar Barbearia e Gerar Acesso'}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -735,7 +778,6 @@ function OwnerDashboardShell({ profile, tenant, services, barbers, appointments,
       </header>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6 my-6">
-        {/* Gestão Rápida de Serviços */}
         <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5">
           <h3 className="font-bold text-sm text-white mb-3 flex items-center gap-2">
             <Scissors className="w-4 h-4 text-amber-400" /> Serviços da Barbearia ({services.length})
@@ -769,7 +811,6 @@ function OwnerDashboardShell({ profile, tenant, services, barbers, appointments,
           </ul>
         </div>
 
-        {/* Gestão Rápida de Barbeiros */}
         <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5">
           <h3 className="font-bold text-sm text-white mb-3 flex items-center gap-2">
             <Users className="w-4 h-4 text-amber-400" /> Equipe de Barbeiros ({barbers.length})
@@ -797,7 +838,6 @@ function OwnerDashboardShell({ profile, tenant, services, barbers, appointments,
         </div>
       </div>
 
-      {/* Agenda da Unidade */}
       <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5">
         <h3 className="font-bold text-sm text-white mb-4 flex items-center gap-2">
           <Calendar className="w-4 h-4 text-amber-400" /> Agendamentos Recebidos ({appointments.length})
