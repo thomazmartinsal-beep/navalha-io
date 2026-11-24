@@ -6,7 +6,7 @@ import {
   Trash2, Edit3, Check, TrendingUp, AlertTriangle, ShoppingBag,
   Link2, ExternalLink, Copy, Clock, Phone,
   BarChart3, SlidersHorizontal, ChevronRight, MessageCircle, Megaphone, Search, Webhook,
-  Smartphone, Play, Pause, Send, Upload
+  Smartphone, Play, Pause, Send, Upload, RefreshCw, UserX, CalendarClock
 } from 'lucide-react';
 import { supabase } from './supabaseClient';
 
@@ -62,6 +62,14 @@ const openWhatsAppMessage = (rawPhone, text) => {
   if (!waNumber) return;
   const url = `https://wa.me/${waNumber}?text=${encodeURIComponent(text)}`;
   window.open(url, '_blank', 'noopener,noreferrer');
+};
+
+const getHoursUntilAppointment = (dateStr, timeStr) => {
+  if (!dateStr || !timeStr) return 0;
+  const cleanTime = timeStr.slice(0, 5);
+  const aptDate = new Date(`${dateStr}T${cleanTime}:00`);
+  const now = new Date();
+  return (aptDate.getTime() - now.getTime()) / (1000 * 60 * 60);
 };
 
 export default function App() {
@@ -235,8 +243,8 @@ export default function App() {
             shop={shop}
             services={shop ? services.filter((s) => s.tenant_id === shop.id) : []}
             barbers={shop ? barbers.filter((b) => b.tenant_id === shop.id) : []}
-            existingAppointments={shop ? appointments.filter((a) => a.tenant_id === shop.id && a.status !== 'cancelled') : []}
-            onAppointmentCreated={() => loadPlatformData(authUser)}
+            allShopAppointments={shop ? appointments.filter((a) => a.tenant_id === shop.id) : []}
+            onAppointmentChanged={() => loadPlatformData(authUser)}
             notify={notify}
           />
         </div>
@@ -382,10 +390,20 @@ export default function App() {
 }
 
 /* ============================================================================
-   1. PÁGINA EXCLUSIVA DE AGENDAMENTO DA BARBEARIA (/b/slug)
+   1. PÁGINA EXCLUSIVA DA BARBEARIA (/b/slug) — AGENDAR + MEUS HORÁRIOS/CANCELAR
    ============================================================================ */
-function DedicatedShopBookingPage({ shop, services, barbers, existingAppointments, onAppointmentCreated, notify }) {
+function DedicatedShopBookingPage({
+  shop,
+  services,
+  barbers,
+  allShopAppointments,
+  onAppointmentChanged,
+  notify,
+}) {
   const todayStr = new Date().toISOString().slice(0, 10);
+  const [publicMode, setPublicMode] = useState('book'); // 'book' | 'manage'
+
+  // Estados de Novo Agendamento
   const [selectedServiceId, setSelectedServiceId] = useState('');
   const [selectedBarberId, setSelectedBarberId] = useState('');
   const [date, setDate] = useState(todayStr);
@@ -394,6 +412,15 @@ function DedicatedShopBookingPage({ shop, services, barbers, existingAppointment
   const [clientPhone, setClientPhone] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [bookingConfirmed, setBookingConfirmed] = useState(null);
+
+  // Estados de Consulta / Reagendamento / Cancelamento pelo Cliente
+  const [lookupPhone, setLookupPhone] = useState('');
+  const [rescheduleTarget, setRescheduleTarget] = useState(null);
+  const [newRescheduleDate, setNewRescheduleDate] = useState(todayStr);
+  const [newRescheduleTime, setNewRescheduleTime] = useState('');
+  const [cancelTarget, setCancelTarget] = useState(null);
+  const [cancelReason, setCancelReason] = useState('Imprevisto de horário');
+  const [processingClientAction, setProcessingClientAction] = useState(false);
 
   if (!shop) {
     return (
@@ -409,10 +436,15 @@ function DedicatedShopBookingPage({ shop, services, barbers, existingAppointment
     );
   }
 
+  const minCancelHours = Number(shop.min_cancel_hours ?? 2);
+  const activeAppointments = allShopAppointments.filter(
+    (a) => a.status !== 'cancelled' && a.status !== 'no_show'
+  );
+
   const selectedService = services.find((s) => s.id === selectedServiceId);
   const selectedBarber = barbers.find((b) => b.id === selectedBarberId);
 
-  const bookedTimesOnDate = existingAppointments
+  const bookedTimesOnDate = activeAppointments
     .filter((a) => a.date === date && (!selectedBarberId || a.barber_id === selectedBarberId))
     .map((a) => a.time?.slice(0, 5));
 
@@ -495,6 +527,7 @@ function DedicatedShopBookingPage({ shop, services, barbers, existingAppointment
     }
 
     setSubmitting(false);
+    setLookupPhone(cleanPhone);
     setBookingConfirmed({
       serviceName: selectedService?.name,
       barberName: selectedBarber?.name || 'Primeiro profissional disponível',
@@ -507,7 +540,7 @@ function DedicatedShopBookingPage({ shop, services, barbers, existingAppointment
     setClientName('');
     setClientPhone('');
     setTime('');
-    onAppointmentCreated();
+    onAppointmentChanged();
   };
 
   const handleSendReceiptToShopWhatsApp = () => {
@@ -516,9 +549,100 @@ function DedicatedShopBookingPage({ shop, services, barbers, existingAppointment
     openWhatsAppMessage(shop.owner_phone, msg);
   };
 
+  // Filtra agendamentos futuros do cliente pelo telefone digitado
+  const lookupDigits = lookupPhone.replace(/\D/g, '');
+  const clientUpcomingAppointments =
+    lookupDigits.length >= 8
+      ? allShopAppointments.filter((a) => {
+          const aptDigits = (a.client_phone || '').replace(/\D/g, '');
+          return (
+            a.status === 'scheduled' &&
+            a.date >= todayStr &&
+            aptDigits.endsWith(lookupDigits.slice(-8))
+          );
+        })
+      : [];
+
+  const handleConfirmClientCancel = async () => {
+    if (!cancelTarget) return;
+    setProcessingClientAction(true);
+
+    const { error } = await supabase
+      .from('appointments')
+      .update({
+        status: 'cancelled',
+        cancellation_reason: `Cliente: ${cancelReason}`,
+      })
+      .eq('id', cancelTarget.id);
+
+    if (error) {
+      setProcessingClientAction(false);
+      notify('Erro ao cancelar: ' + error.message);
+      return;
+    }
+
+    if (shop.whatsapp_webhook_url) {
+      try {
+        fetch(shop.whatsapp_webhook_url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            event: 'appointment.cancelled_by_client',
+            barbershop_name: shop.name,
+            client_name: cancelTarget.client_name,
+            date: cancelTarget.date,
+            time: cancelTarget.time,
+            reason: cancelReason,
+          }),
+        }).catch(() => {});
+      } catch (_) {}
+    }
+
+    setProcessingClientAction(false);
+    setCancelTarget(null);
+    notify('Horário cancelado e liberado na agenda!');
+    onAppointmentChanged();
+  };
+
+  const handleConfirmClientReschedule = async () => {
+    if (!rescheduleTarget || !newRescheduleDate || !newRescheduleTime) return;
+    setProcessingClientAction(true);
+
+    const { error } = await supabase
+      .from('appointments')
+      .update({
+        date: newRescheduleDate,
+        time: newRescheduleTime,
+      })
+      .eq('id', rescheduleTarget.id);
+
+    setProcessingClientAction(false);
+
+    if (error) {
+      notify('Erro ao reagendar: ' + error.message);
+      return;
+    }
+
+    setRescheduleTarget(null);
+    setNewRescheduleTime('');
+    notify(`Horário remarcado para ${newRescheduleDate} às ${newRescheduleTime}!`);
+    onAppointmentChanged();
+  };
+
+  const bookedTimesForReschedule = rescheduleTarget
+    ? activeAppointments
+        .filter(
+          (a) =>
+            a.id !== rescheduleTarget.id &&
+            a.date === newRescheduleDate &&
+            (!rescheduleTarget.barber_id || a.barber_id === rescheduleTarget.barber_id)
+        )
+        .map((a) => a.time?.slice(0, 5))
+    : [];
+
   return (
     <div className="max-w-2xl mx-auto px-4 py-6 sm:py-10">
-      <div className="bg-gradient-to-br from-zinc-900 via-zinc-900 to-zinc-950 border border-zinc-800/90 rounded-3xl p-6 mb-6 shadow-2xl relative overflow-hidden">
+      <div className="bg-gradient-to-br from-zinc-900 via-zinc-900 to-zinc-950 border border-zinc-800/90 rounded-3xl p-6 mb-5 shadow-2xl relative overflow-hidden">
         <div className="absolute -right-10 -top-10 w-40 h-40 rounded-full bg-amber-500/10 blur-2xl pointer-events-none" />
         <div className="flex flex-wrap items-center justify-between gap-4 relative z-10">
           <BrandLogo
@@ -533,267 +657,530 @@ function DedicatedShopBookingPage({ shop, services, barbers, existingAppointment
           </span>
         </div>
 
-        {shop.owner_phone && (
-          <div className="mt-4 pt-4 border-t border-zinc-800/80 flex items-center gap-4 text-xs text-zinc-400">
-            <span className="inline-flex items-center gap-1.5">
-              <Phone className="w-3.5 h-3.5 text-amber-400" /> {shop.owner_phone}
-            </span>
-            <span className="inline-flex items-center gap-1.5">
-              <Sparkles className="w-3.5 h-3.5 text-amber-400" /> Sem taxa de reserva
-            </span>
-          </div>
-        )}
-      </div>
-
-      {bookingConfirmed ? (
-        <div className="bg-zinc-900 border border-emerald-500/30 rounded-3xl p-7 text-center shadow-2xl">
-          <div className="w-16 h-16 rounded-2xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 flex items-center justify-center mx-auto mb-4">
-            <CheckCircle2 className="w-8 h-8" />
-          </div>
-          <h2 className="text-2xl font-black text-white">Horário Confirmado!</h2>
-          <p className="text-sm text-zinc-400 mt-1.5">
-            Tudo certo, <strong className="text-white">{bookingConfirmed.clientName}</strong>. Te esperamos na{' '}
-            <strong className="text-amber-400">{shop.name}</strong>.
-          </p>
-
-          <div className="bg-zinc-950 border border-zinc-800 rounded-2xl p-5 my-6 text-left text-xs space-y-3">
-            <div className="flex justify-between items-center">
-              <span className="text-zinc-400">Serviço escolhido</span>
-              <span className="font-bold text-white text-sm">{bookingConfirmed.serviceName}</span>
-            </div>
-            <div className="flex justify-between items-center">
-              <span className="text-zinc-400">Profissional</span>
-              <span className="font-bold text-white">{bookingConfirmed.barberName}</span>
-            </div>
-            <div className="flex justify-between items-center">
-              <span className="text-zinc-400">Data e Horário</span>
-              <span className="font-bold text-amber-400">{bookingConfirmed.date} às {bookingConfirmed.time}</span>
-            </div>
-            <div className="pt-2.5 border-t border-zinc-800/80 flex justify-between items-center">
-              <span className="text-zinc-400">Valor no local</span>
-              <span className="font-black text-emerald-400 text-base">R$ {Number(bookingConfirmed.price).toFixed(2)}</span>
-            </div>
-          </div>
-
-          <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
-            {shop.owner_phone && (
-              <button
-                onClick={handleSendReceiptToShopWhatsApp}
-                className="w-full sm:w-auto px-6 py-3.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-zinc-950 font-black text-xs transition flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/20"
-              >
-                <MessageCircle className="w-4 h-4" /> Enviar Comprovante no WhatsApp
-              </button>
-            )}
+        <div className="mt-5 pt-4 border-t border-zinc-800/80 flex flex-wrap items-center justify-between gap-3 relative z-10">
+          <div className="flex gap-2">
             <button
-              onClick={() => setBookingConfirmed(null)}
-              className="w-full sm:w-auto px-6 py-3.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-white font-bold text-xs transition"
+              type="button"
+              onClick={() => setPublicMode('book')}
+              className={`px-4 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 transition ${
+                publicMode === 'book'
+                  ? 'bg-amber-500 text-zinc-950 shadow-lg shadow-amber-500/20'
+                  : 'bg-zinc-950 border border-zinc-800 text-zinc-300 hover:text-white'
+              }`}
             >
-              Fazer Outro Agendamento
+              <Scissors className="w-3.5 h-3.5" /> Novo Agendamento
+            </button>
+            <button
+              type="button"
+              onClick={() => setPublicMode('manage')}
+              className={`px-4 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 transition ${
+                publicMode === 'manage'
+                  ? 'bg-amber-500 text-zinc-950 shadow-lg shadow-amber-500/20'
+                  : 'bg-zinc-950 border border-zinc-800 text-zinc-300 hover:text-white'
+              }`}
+            >
+              <CalendarClock className="w-3.5 h-3.5" /> Meus Horários / Cancelar
             </button>
           </div>
+
+          {shop.owner_phone && (
+            <span className="inline-flex items-center gap-1.5 text-xs text-zinc-400">
+              <Phone className="w-3.5 h-3.5 text-amber-400" /> {shop.owner_phone}
+            </span>
+          )}
         </div>
-      ) : (
-        <form onSubmit={handleBook} className="space-y-6">
-          <div className="bg-zinc-900/80 backdrop-blur border border-zinc-800 rounded-3xl p-5 sm:p-6">
-            <div className="flex items-center gap-2.5 mb-4">
-              <span className="w-6 h-6 rounded-lg bg-amber-500 text-zinc-950 font-black text-xs flex items-center justify-center">
-                1
-              </span>
-              <h2 className="font-black text-sm uppercase tracking-wider text-white">Escolha o Serviço</h2>
-            </div>
+      </div>
 
-            {services.length === 0 ? (
-              <p className="text-xs text-zinc-500">Nenhum serviço disponível no momento.</p>
-            ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {services.map((s) => {
-                  const selected = selectedServiceId === s.id;
-                  return (
-                    <button
-                      type="button"
-                      key={s.id}
-                      onClick={() => setSelectedServiceId(s.id)}
-                      className={`p-4 rounded-2xl border text-left transition-all relative ${
-                        selected
-                          ? 'bg-amber-500/15 border-amber-500 shadow-lg shadow-amber-500/10'
-                          : 'bg-zinc-950/90 border-zinc-800/90 hover:border-zinc-700'
-                      }`}
-                    >
-                      <div className="flex justify-between items-start gap-2">
-                        <span className={`font-bold text-sm ${selected ? 'text-white' : 'text-zinc-200'}`}>
-                          {s.name}
-                        </span>
-                        <span className="px-2 py-0.5 rounded-lg bg-amber-500/15 text-amber-400 text-xs font-black shrink-0">
-                          R$ {Number(s.price).toFixed(2)}
-                        </span>
-                      </div>
-                      <div className="flex items-center justify-between mt-2.5 text-[11px] text-zinc-500">
-                        <span className="inline-flex items-center gap-1">
-                          <Clock className="w-3 h-3" /> {s.duration} min
-                        </span>
-                        {selected && <span className="text-amber-400 font-bold">Selecionado ✓</span>}
-                      </div>
-                    </button>
-                  );
-                })}
+      {/* MODO 1: NOVO AGENDAMENTO */}
+      {publicMode === 'book' && (
+        <>
+          {bookingConfirmed ? (
+            <div className="bg-zinc-900 border border-emerald-500/30 rounded-3xl p-7 text-center shadow-2xl">
+              <div className="w-16 h-16 rounded-2xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 flex items-center justify-center mx-auto mb-4">
+                <CheckCircle2 className="w-8 h-8" />
               </div>
-            )}
-          </div>
+              <h2 className="text-2xl font-black text-white">Horário Confirmado!</h2>
+              <p className="text-sm text-zinc-400 mt-1.5">
+                Tudo certo, <strong className="text-white">{bookingConfirmed.clientName}</strong>. Te esperamos na{' '}
+                <strong className="text-amber-400">{shop.name}</strong>.
+              </p>
 
-          <div className="bg-zinc-900/80 backdrop-blur border border-zinc-800 rounded-3xl p-5 sm:p-6">
-            <div className="flex items-center gap-2.5 mb-4">
-              <span className="w-6 h-6 rounded-lg bg-amber-500 text-zinc-950 font-black text-xs flex items-center justify-center">
-                2
-              </span>
-              <h2 className="font-black text-sm uppercase tracking-wider text-white">Escolha o Profissional</h2>
+              <div className="bg-zinc-950 border border-zinc-800 rounded-2xl p-5 my-6 text-left text-xs space-y-3">
+                <div className="flex justify-between items-center">
+                  <span className="text-zinc-400">Serviço escolhido</span>
+                  <span className="font-bold text-white text-sm">{bookingConfirmed.serviceName}</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-zinc-400">Profissional</span>
+                  <span className="font-bold text-white">{bookingConfirmed.barberName}</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-zinc-400">Data e Horário</span>
+                  <span className="font-bold text-amber-400">{bookingConfirmed.date} às {bookingConfirmed.time}</span>
+                </div>
+                <div className="pt-2.5 border-t border-zinc-800/80 flex justify-between items-center">
+                  <span className="text-zinc-400">Valor no local</span>
+                  <span className="font-black text-emerald-400 text-base">R$ {Number(bookingConfirmed.price).toFixed(2)}</span>
+                </div>
+              </div>
+
+              <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
+                {shop.owner_phone && (
+                  <button
+                    onClick={handleSendReceiptToShopWhatsApp}
+                    className="w-full sm:w-auto px-6 py-3.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-zinc-950 font-black text-xs transition flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/20"
+                  >
+                    <MessageCircle className="w-4 h-4" /> Enviar Comprovante no WhatsApp
+                  </button>
+                )}
+                <button
+                  onClick={() => { setBookingConfirmed(null); setPublicMode('manage'); }}
+                  className="w-full sm:w-auto px-5 py-3.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 font-bold text-xs transition"
+                >
+                  Ver Meus Horários
+                </button>
+                <button
+                  onClick={() => setBookingConfirmed(null)}
+                  className="w-full sm:w-auto px-5 py-3.5 rounded-xl bg-zinc-950 border border-zinc-800 hover:border-zinc-700 text-white font-bold text-xs transition"
+                >
+                  Novo Agendamento
+                </button>
+              </div>
             </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <button
-                type="button"
-                onClick={() => { setSelectedBarberId(''); setTime(''); }}
-                className={`p-3.5 rounded-2xl border flex items-center gap-3 text-left transition ${
-                  selectedBarberId === ''
-                    ? 'bg-amber-500/15 border-amber-500 text-white'
-                    : 'bg-zinc-950/90 border-zinc-800 text-zinc-300 hover:border-zinc-700'
-                }`}
-              >
-                <div className="w-10 h-10 rounded-xl bg-zinc-800 flex items-center justify-center text-amber-400 font-black text-xs shrink-0">
-                  <Users className="w-5 h-5" />
+          ) : (
+            <form onSubmit={handleBook} className="space-y-6">
+              <div className="bg-zinc-900/80 backdrop-blur border border-zinc-800 rounded-3xl p-5 sm:p-6">
+                <div className="flex items-center gap-2.5 mb-4">
+                  <span className="w-6 h-6 rounded-lg bg-amber-500 text-zinc-950 font-black text-xs flex items-center justify-center">
+                    1
+                  </span>
+                  <h2 className="font-black text-sm uppercase tracking-wider text-white">Escolha o Serviço</h2>
                 </div>
-                <div>
-                  <p className="font-bold text-xs text-white">Sem preferência</p>
-                  <p className="text-[11px] text-zinc-500">Primeiro barbeiro livre</p>
-                </div>
-              </button>
 
-              {barbers.map((b) => {
-                const selected = selectedBarberId === b.id;
-                const initials = b.name.split(' ').map((n) => n[0]).slice(0, 2).join('').toUpperCase();
-                return (
+                {services.length === 0 ? (
+                  <p className="text-xs text-zinc-500">Nenhum serviço disponível no momento.</p>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {services.map((s) => {
+                      const selected = selectedServiceId === s.id;
+                      return (
+                        <button
+                          type="button"
+                          key={s.id}
+                          onClick={() => setSelectedServiceId(s.id)}
+                          className={`p-4 rounded-2xl border text-left transition-all relative ${
+                            selected
+                              ? 'bg-amber-500/15 border-amber-500 shadow-lg shadow-amber-500/10'
+                              : 'bg-zinc-950/90 border-zinc-800/90 hover:border-zinc-700'
+                          }`}
+                        >
+                          <div className="flex justify-between items-start gap-2">
+                            <span className={`font-bold text-sm ${selected ? 'text-white' : 'text-zinc-200'}`}>
+                              {s.name}
+                            </span>
+                            <span className="px-2 py-0.5 rounded-lg bg-amber-500/15 text-amber-400 text-xs font-black shrink-0">
+                              R$ {Number(s.price).toFixed(2)}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between mt-2.5 text-[11px] text-zinc-500">
+                            <span className="inline-flex items-center gap-1">
+                              <Clock className="w-3 h-3" /> {s.duration} min
+                            </span>
+                            {selected && <span className="text-amber-400 font-bold">Selecionado ✓</span>}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              <div className="bg-zinc-900/80 backdrop-blur border border-zinc-800 rounded-3xl p-5 sm:p-6">
+                <div className="flex items-center gap-2.5 mb-4">
+                  <span className="w-6 h-6 rounded-lg bg-amber-500 text-zinc-950 font-black text-xs flex items-center justify-center">
+                    2
+                  </span>
+                  <h2 className="font-black text-sm uppercase tracking-wider text-white">Escolha o Profissional</h2>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <button
                     type="button"
-                    key={b.id}
-                    onClick={() => { setSelectedBarberId(b.id); setTime(''); }}
+                    onClick={() => { setSelectedBarberId(''); setTime(''); }}
                     className={`p-3.5 rounded-2xl border flex items-center gap-3 text-left transition ${
-                      selected
+                      selectedBarberId === ''
                         ? 'bg-amber-500/15 border-amber-500 text-white'
                         : 'bg-zinc-950/90 border-zinc-800 text-zinc-300 hover:border-zinc-700'
                     }`}
                   >
-                    <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-400 to-amber-600 text-zinc-950 flex items-center justify-center font-black text-xs shrink-0">
-                      {initials}
+                    <div className="w-10 h-10 rounded-xl bg-zinc-800 flex items-center justify-center text-amber-400 font-black text-xs shrink-0">
+                      <Users className="w-5 h-5" />
                     </div>
                     <div>
-                      <p className="font-bold text-xs text-white">{b.name}</p>
-                      <p className="text-[11px] text-zinc-400">{b.role_title}</p>
+                      <p className="font-bold text-xs text-white">Sem preferência</p>
+                      <p className="text-[11px] text-zinc-500">Primeiro barbeiro livre</p>
                     </div>
                   </button>
-                );
-              })}
-            </div>
+
+                  {barbers.map((b) => {
+                    const selected = selectedBarberId === b.id;
+                    const initials = b.name.split(' ').map((n) => n[0]).slice(0, 2).join('').toUpperCase();
+                    return (
+                      <button
+                        type="button"
+                        key={b.id}
+                        onClick={() => { setSelectedBarberId(b.id); setTime(''); }}
+                        className={`p-3.5 rounded-2xl border flex items-center gap-3 text-left transition ${
+                          selected
+                            ? 'bg-amber-500/15 border-amber-500 text-white'
+                            : 'bg-zinc-950/90 border-zinc-800 text-zinc-300 hover:border-zinc-700'
+                        }`}
+                      >
+                        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-400 to-amber-600 text-zinc-950 flex items-center justify-center font-black text-xs shrink-0">
+                          {initials}
+                        </div>
+                        <div>
+                          <p className="font-bold text-xs text-white">{b.name}</p>
+                          <p className="text-[11px] text-zinc-400">{b.role_title}</p>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="bg-zinc-900/80 backdrop-blur border border-zinc-800 rounded-3xl p-5 sm:p-6">
+                <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+                  <div className="flex items-center gap-2.5">
+                    <span className="w-6 h-6 rounded-lg bg-amber-500 text-zinc-950 font-black text-xs flex items-center justify-center">
+                      3
+                    </span>
+                    <h2 className="font-black text-sm uppercase tracking-wider text-white">Data e Horário</h2>
+                  </div>
+                  <input
+                    type="date"
+                    required
+                    min={todayStr}
+                    value={date}
+                    onChange={(e) => { setDate(e.target.value); setTime(''); }}
+                    className="px-3.5 py-2 rounded-xl bg-zinc-950 border border-zinc-800 text-xs font-bold text-white focus:border-amber-500 focus:outline-none"
+                  />
+                </div>
+
+                <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
+                  {TIME_SLOTS.map((slot) => {
+                    const isBooked = bookedTimesOnDate.includes(slot);
+                    const isSelected = time === slot;
+                    return (
+                      <button
+                        type="button"
+                        key={slot}
+                        disabled={isBooked}
+                        onClick={() => setTime(slot)}
+                        className={`py-2.5 rounded-xl text-xs font-bold border transition ${
+                          isBooked
+                            ? 'bg-zinc-950/40 border-zinc-900 text-zinc-600 line-through cursor-not-allowed'
+                            : isSelected
+                            ? 'bg-amber-500 border-amber-400 text-zinc-950 font-black shadow-md shadow-amber-500/20'
+                            : 'bg-zinc-950 border-zinc-800 text-zinc-200 hover:border-amber-500/50'
+                        }`}
+                      >
+                        {slot}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="bg-zinc-900/80 backdrop-blur border border-zinc-800 rounded-3xl p-5 sm:p-6">
+                <div className="flex items-center gap-2.5 mb-4">
+                  <span className="w-6 h-6 rounded-lg bg-amber-500 text-zinc-950 font-black text-xs flex items-center justify-center">
+                    4
+                  </span>
+                  <h2 className="font-black text-sm uppercase tracking-wider text-white">Seus Dados (WhatsApp)</h2>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
+                  <div>
+                    <label className="block text-[11px] font-bold uppercase text-zinc-400 mb-1">Seu Nome</label>
+                    <input
+                      type="text"
+                      required
+                      value={clientName}
+                      onChange={(e) => setClientName(e.target.value)}
+                      placeholder="Como gostaria de ser chamado"
+                      className="w-full px-3.5 py-3 rounded-xl bg-zinc-950 border border-zinc-800 text-sm text-white focus:border-amber-500 focus:outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold uppercase text-zinc-400 mb-1">WhatsApp com DDD</label>
+                    <input
+                      type="text"
+                      required
+                      value={clientPhone}
+                      onChange={(e) => setClientPhone(e.target.value)}
+                      placeholder="(82) 99999-9999"
+                      className="w-full px-3.5 py-3 rounded-xl bg-zinc-950 border border-zinc-800 text-sm text-white focus:border-amber-500 focus:outline-none"
+                    />
+                  </div>
+                </div>
+
+                {selectedService && (
+                  <div className="p-3.5 rounded-2xl bg-zinc-950 border border-zinc-800 mb-4 flex items-center justify-between text-xs">
+                    <div>
+                      <p className="text-zinc-400">Resumo do agendamento:</p>
+                      <p className="font-bold text-white mt-0.5">
+                        {selectedService.name} {time ? `• ${date} às ${time}` : ''}
+                      </p>
+                    </div>
+                    <span className="text-base font-black text-amber-400">
+                      R$ {Number(selectedService.price).toFixed(2)}
+                    </span>
+                  </div>
+                )}
+
+                <p className="text-[11px] text-zinc-400 mb-4 flex items-center gap-1.5 bg-zinc-950/70 p-2.5 rounded-xl border border-zinc-800/80">
+                  <Clock className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                  <span>
+                    Precisa remarcar ou cancelar? Você pode alterar pelo botão <strong>Meus Horários</strong> com até{' '}
+                    <strong className="text-zinc-200">{minCancelHours}h de antecedência</strong>.
+                  </span>
+                </p>
+
+                <button
+                  type="submit"
+                  disabled={submitting || !selectedServiceId || !time}
+                  className="w-full py-4 rounded-2xl bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 disabled:opacity-40 text-zinc-950 font-black text-sm transition shadow-xl shadow-amber-500/20 flex items-center justify-center gap-2"
+                >
+                  <span>{submitting ? 'Confirmando reserva...' : 'Confirmar Agendamento'}</span>
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
+            </form>
+          )}
+        </>
+      )}
+
+      {/* MODO 2: CONSULTAR, REAGENDAR OU CANCELAR PELO CLIENTE */}
+      {publicMode === 'manage' && (
+        <div className="bg-zinc-900/80 backdrop-blur border border-zinc-800 rounded-3xl p-6 space-y-5">
+          <div>
+            <h2 className="font-black text-base text-white flex items-center gap-2">
+              <CalendarClock className="w-4 h-4 text-amber-400" /> Meus Agendamentos na {shop.name}
+            </h2>
+            <p className="text-xs text-zinc-400 mt-1">
+              Informe o número de WhatsApp usado na reserva para visualizar, remarcar ou cancelar seu horário.
+            </p>
           </div>
 
-          <div className="bg-zinc-900/80 backdrop-blur border border-zinc-800 rounded-3xl p-5 sm:p-6">
-            <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
-              <div className="flex items-center gap-2.5">
-                <span className="w-6 h-6 rounded-lg bg-amber-500 text-zinc-950 font-black text-xs flex items-center justify-center">
-                  3
-                </span>
-                <h2 className="font-black text-sm uppercase tracking-wider text-white">Data e Horário</h2>
-              </div>
+          <div className="relative">
+            <Phone className="w-4 h-4 text-zinc-500 absolute left-3.5 top-3.5" />
+            <input
+              type="text"
+              value={lookupPhone}
+              onChange={(e) => setLookupPhone(e.target.value)}
+              placeholder="Digite seu WhatsApp com DDD (ex: 82 99999-9999)"
+              className="w-full pl-10 pr-4 py-3 rounded-xl bg-zinc-950 border border-zinc-800 text-sm text-white focus:border-amber-500 focus:outline-none"
+            />
+          </div>
+
+          {lookupDigits.length >= 8 && (
+            <div className="space-y-3">
+              {clientUpcomingAppointments.length === 0 ? (
+                <div className="p-6 rounded-2xl bg-zinc-950 border border-dashed border-zinc-800 text-center">
+                  <p className="text-xs text-zinc-400">
+                    Nenhum agendamento futuro encontrado para este número.
+                  </p>
+                </div>
+              ) : (
+                clientUpcomingAppointments.map((apt) => {
+                  const srv = services.find((s) => s.id === apt.service_id);
+                  const brb = barbers.find((b) => b.id === apt.barber_id);
+                  const hoursLeft = getHoursUntilAppointment(apt.date, apt.time);
+                  const canSelfModify = minCancelHours === 0 || hoursLeft >= minCancelHours;
+
+                  return (
+                    <div
+                      key={apt.id}
+                      className="p-4 rounded-2xl bg-zinc-950 border border-zinc-800 space-y-3"
+                    >
+                      <div className="flex flex-wrap justify-between items-start gap-2">
+                        <div>
+                          <span className="px-2.5 py-0.5 rounded-md bg-amber-500/15 text-amber-400 text-xs font-black">
+                            {apt.date} às {apt.time?.slice(0, 5)}
+                          </span>
+                          <h3 className="font-bold text-sm text-white mt-2">
+                            {srv?.name || 'Atendimento'} • R$ {Number(apt.price_snapshot).toFixed(2)}
+                          </h3>
+                          <p className="text-xs text-zinc-400">
+                            Cliente: {apt.client_name} • Profissional: {brb?.name || 'Equipe'}
+                          </p>
+                        </div>
+                      </div>
+
+                      {canSelfModify ? (
+                        <div className="flex flex-wrap gap-2 pt-2 border-t border-zinc-900">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setRescheduleTarget(apt);
+                              setNewRescheduleDate(apt.date);
+                              setNewRescheduleTime('');
+                            }}
+                            className="px-3.5 py-2 rounded-xl bg-amber-500/15 border border-amber-500/40 text-amber-400 hover:bg-amber-500/25 text-xs font-black flex items-center gap-1.5 transition"
+                          >
+                            <RefreshCw className="w-3.5 h-3.5" /> Trocar Horário
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setCancelTarget(apt);
+                              setCancelReason('Imprevisto de horário');
+                            }}
+                            className="px-3.5 py-2 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-400 hover:bg-rose-500/25 text-xs font-bold flex items-center gap-1.5 transition"
+                          >
+                            <XCircle className="w-3.5 h-3.5" /> Cancelar Reserva
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/25 text-xs text-amber-300 flex flex-wrap items-center justify-between gap-2">
+                          <span>
+                            Faltam menos de {minCancelHours}h para o corte. Alterações em cima da hora são feitas pelo WhatsApp:
+                          </span>
+                          {shop.owner_phone && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                openWhatsAppMessage(
+                                  shop.owner_phone,
+                                  `Olá *${shop.name}*! Sou *${apt.client_name}* e preciso falar sobre meu horário de hoje às *${apt.time?.slice(0, 5)}*.`
+                                )
+                              }
+                              className="px-3 py-1.5 rounded-lg bg-emerald-500 text-zinc-950 font-black text-[11px] inline-flex items-center gap-1"
+                            >
+                              <MessageCircle className="w-3 h-3" /> Falar com a Barbearia
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* MODAL REAGENDAMENTO PELO CLIENTE */}
+      {rescheduleTarget && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm overflow-y-auto flex items-center justify-center p-4">
+          <div className="w-full max-w-md bg-zinc-900 border border-zinc-800 rounded-3xl p-6 shadow-2xl my-8 space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="font-black text-base text-white">Trocar Data ou Horário</h3>
+              <button onClick={() => setRescheduleTarget(null)} className="text-zinc-400 hover:text-white">
+                <XCircle className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-bold uppercase text-zinc-400 mb-1">Nova Data</label>
               <input
                 type="date"
-                required
                 min={todayStr}
-                value={date}
-                onChange={(e) => { setDate(e.target.value); setTime(''); }}
-                className="px-3.5 py-2 rounded-xl bg-zinc-950 border border-zinc-800 text-xs font-bold text-white focus:border-amber-500 focus:outline-none"
+                value={newRescheduleDate}
+                onChange={(e) => { setNewRescheduleDate(e.target.value); setNewRescheduleTime(''); }}
+                className="w-full px-3.5 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-xs font-bold text-white"
               />
             </div>
 
-            <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
-              {TIME_SLOTS.map((slot) => {
-                const isBooked = bookedTimesOnDate.includes(slot);
-                const isSelected = time === slot;
-                return (
-                  <button
-                    type="button"
-                    key={slot}
-                    disabled={isBooked}
-                    onClick={() => setTime(slot)}
-                    className={`py-2.5 rounded-xl text-xs font-bold border transition ${
-                      isBooked
-                        ? 'bg-zinc-950/40 border-zinc-900 text-zinc-600 line-through cursor-not-allowed'
-                        : isSelected
-                        ? 'bg-amber-500 border-amber-400 text-zinc-950 font-black shadow-md shadow-amber-500/20'
-                        : 'bg-zinc-950 border-zinc-800 text-zinc-200 hover:border-amber-500/50'
-                    }`}
-                  >
-                    {slot}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          <div className="bg-zinc-900/80 backdrop-blur border border-zinc-800 rounded-3xl p-5 sm:p-6">
-            <div className="flex items-center gap-2.5 mb-4">
-              <span className="w-6 h-6 rounded-lg bg-amber-500 text-zinc-950 font-black text-xs flex items-center justify-center">
-                4
-              </span>
-              <h2 className="font-black text-sm uppercase tracking-wider text-white">Seus Dados (WhatsApp)</h2>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-5">
-              <div>
-                <label className="block text-[11px] font-bold uppercase text-zinc-400 mb-1">Seu Nome</label>
-                <input
-                  type="text"
-                  required
-                  value={clientName}
-                  onChange={(e) => setClientName(e.target.value)}
-                  placeholder="Como gostaria de ser chamado"
-                  className="w-full px-3.5 py-3 rounded-xl bg-zinc-950 border border-zinc-800 text-sm text-white focus:border-amber-500 focus:outline-none"
-                />
-              </div>
-              <div>
-                <label className="block text-[11px] font-bold uppercase text-zinc-400 mb-1">WhatsApp com DDD</label>
-                <input
-                  type="text"
-                  required
-                  value={clientPhone}
-                  onChange={(e) => setClientPhone(e.target.value)}
-                  placeholder="(82) 99999-9999"
-                  className="w-full px-3.5 py-3 rounded-xl bg-zinc-950 border border-zinc-800 text-sm text-white focus:border-amber-500 focus:outline-none"
-                />
+            <div>
+              <label className="block text-[11px] font-bold uppercase text-zinc-400 mb-1.5">Novo Horário Livre</label>
+              <div className="grid grid-cols-3 gap-2">
+                {TIME_SLOTS.map((slot) => {
+                  const occupied = bookedTimesForReschedule.includes(slot);
+                  const picked = newRescheduleTime === slot;
+                  return (
+                    <button
+                      type="button"
+                      key={slot}
+                      disabled={occupied}
+                      onClick={() => setNewRescheduleTime(slot)}
+                      className={`py-2 rounded-xl text-xs font-bold border ${
+                        occupied
+                          ? 'bg-zinc-950/40 border-zinc-900 text-zinc-600 line-through'
+                          : picked
+                          ? 'bg-amber-500 border-amber-400 text-zinc-950 font-black'
+                          : 'bg-zinc-950 border-zinc-800 text-zinc-200'
+                      }`}
+                    >
+                      {slot}
+                    </button>
+                  );
+                })}
               </div>
             </div>
-
-            {selectedService && (
-              <div className="p-3.5 rounded-2xl bg-zinc-950 border border-zinc-800 mb-4 flex items-center justify-between text-xs">
-                <div>
-                  <p className="text-zinc-400">Resumo do agendamento:</p>
-                  <p className="font-bold text-white mt-0.5">
-                    {selectedService.name} {time ? `• ${date} às ${time}` : ''}
-                  </p>
-                </div>
-                <span className="text-base font-black text-amber-400">
-                  R$ {Number(selectedService.price).toFixed(2)}
-                </span>
-              </div>
-            )}
 
             <button
-              type="submit"
-              disabled={submitting || !selectedServiceId || !time}
-              className="w-full py-4 rounded-2xl bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 disabled:opacity-40 text-zinc-950 font-black text-sm transition shadow-xl shadow-amber-500/20 flex items-center justify-center gap-2"
+              type="button"
+              disabled={processingClientAction || !newRescheduleTime}
+              onClick={handleConfirmClientReschedule}
+              className="w-full py-3.5 rounded-xl bg-amber-500 hover:bg-amber-400 disabled:opacity-40 text-zinc-950 font-black text-sm transition"
             >
-              <span>{submitting ? 'Confirmando reserva...' : 'Confirmar Agendamento'}</span>
-              <ChevronRight className="w-4 h-4" />
+              {processingClientAction ? 'Salvando...' : 'Confirmar Novo Horário'}
             </button>
           </div>
-        </form>
+        </div>
+      )}
+
+      {/* MODAL CANCELAMENTO PELO CLIENTE */}
+      {cancelTarget && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm overflow-y-auto flex items-center justify-center p-4">
+          <div className="w-full max-w-md bg-zinc-900 border border-zinc-800 rounded-3xl p-6 shadow-2xl my-8 space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="font-black text-base text-white">Cancelar Agendamento</h3>
+              <button onClick={() => setCancelTarget(null)} className="text-zinc-400 hover:text-white">
+                <XCircle className="w-5 h-5" />
+              </button>
+            </div>
+
+            <p className="text-xs text-zinc-400">
+              Você está cancelando seu horário de <strong className="text-white">{cancelTarget.date} às {cancelTarget.time?.slice(0, 5)}</strong>. A vaga será liberada imediatamente na agenda.
+            </p>
+
+            <div>
+              <label className="block text-[11px] font-bold uppercase text-zinc-400 mb-1">Motivo (opcional)</label>
+              <select
+                value={cancelReason}
+                onChange={(e) => setCancelReason(e.target.value)}
+                className="w-full px-3.5 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-xs text-white"
+              >
+                <option value="Imprevisto de horário">Imprevisto de horário</option>
+                <option value="Vou remarcar outro dia">Vou remarcar outro dia</option>
+                <option value="Compromisso de trabalho">Compromisso de trabalho</option>
+                <option value="Outro motivo">Outro motivo</option>
+              </select>
+            </div>
+
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setCancelTarget(null)}
+                className="flex-1 py-3 rounded-xl bg-zinc-800 text-white font-bold text-xs"
+              >
+                Manter Horário
+              </button>
+              <button
+                type="button"
+                disabled={processingClientAction}
+                onClick={handleConfirmClientCancel}
+                className="flex-1 py-3 rounded-xl bg-rose-500 hover:bg-rose-400 text-white font-black text-xs"
+              >
+                {processingClientAction ? 'Cancelando...' : 'Confirmar Cancelamento'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       <footer className="text-center text-[11px] text-zinc-600 mt-10">
@@ -855,12 +1242,13 @@ function PlatformHomePortal({ onOpenLogin }) {
       <header className="flex flex-wrap items-center justify-between gap-3 py-3 px-4 rounded-2xl bg-zinc-900/70 backdrop-blur border border-zinc-800/80">
         <BrandLogo />
         <div className="flex items-center gap-2.5">
-          <a
-            href="#orcamento"
-            className="hidden sm:inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 hover:border-amber-500/50 text-amber-400 text-xs font-bold transition"
+          <button
+            type="button"
+            onClick={() => handleRequestQuote()}
+            className="inline-flex items-center gap-1.5 px-3.5 sm:px-4 py-2.5 rounded-xl bg-emerald-500/15 border border-emerald-500/40 hover:bg-emerald-500/25 text-emerald-400 text-xs font-black transition"
           >
             <MessageCircle className="w-3.5 h-3.5" /> Solicitar Orçamento
-          </a>
+          </button>
           <button
             onClick={onOpenLogin}
             className="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-zinc-950 text-xs sm:text-sm font-black flex items-center gap-2 transition shadow-lg shadow-amber-500/20"
@@ -979,7 +1367,7 @@ function PlatformHomePortal({ onOpenLogin }) {
 
                 <div className="p-4 min-h-[295px] flex flex-col justify-between bg-zinc-950">
                   {demoStep === 0 && (
-                    <div className="space-y-2.5 animate-fadeIn">
+                    <div className="space-y-2.5">
                       <p className="text-[11px] font-black uppercase tracking-wider text-amber-400">
                         1. Escolha o Serviço
                       </p>
@@ -1480,7 +1868,7 @@ function SuperAdminConsole({ tenants, onRefresh, onImpersonate, onCopyLink, onLo
 }
 
 /* ============================================================================
-   4. PAINEL EXECUTIVO DO DONO DA BARBEARIA (COM PERSONALIZAÇÃO DE LOGO E NOME)
+   4. PAINEL EXECUTIVO DO DONO DA BARBEARIA
    ============================================================================ */
 function OwnerDashboardShell({
   profile,
@@ -1499,12 +1887,16 @@ function OwnerDashboardShell({
 }) {
   const [activeTab, setActiveTab] = useState('agenda');
 
-  // Identidade Visual (Logo, Nome e Link)
+  // Identidade Visual & Regras de Cancelamento
   const [showBrandModal, setShowBrandModal] = useState(false);
   const [brandName, setBrandName] = useState(tenant?.name || '');
   const [brandSlug, setBrandSlug] = useState(tenant?.slug || '');
   const [brandLogoUrl, setBrandLogoUrl] = useState(tenant?.logo_url || '');
+  const [minCancelHours, setMinCancelHours] = useState(String(tenant?.min_cancel_hours ?? 2));
   const [uploadingLogo, setUploadingLogo] = useState(false);
+
+  // Repescagem de vaga cancelada no WhatsApp
+  const [repescagemSlot, setRepescagemSlot] = useState(null);
 
   const [webhookUrl, setWebhookUrl] = useState(tenant?.whatsapp_webhook_url || '');
   const [showWebhookConfig, setShowWebhookConfig] = useState(false);
@@ -1570,7 +1962,7 @@ function OwnerDashboardShell({
     const { data } = supabase.storage.from('barbershop-logos').getPublicUrl(filePath);
     setBrandLogoUrl(data.publicUrl);
     setUploadingLogo(false);
-    notify('Logo carregada! Clique em Salvar Identidade Visual.');
+    notify('Logo carregada! Clique em Salvar Configurações.');
   };
 
   const handleSaveBrandIdentity = async (e) => {
@@ -1590,6 +1982,7 @@ function OwnerDashboardShell({
         name: brandName.trim(),
         slug: cleanSlug,
         logo_url: brandLogoUrl.trim() || null,
+        min_cancel_hours: Number(minCancelHours) || 0,
       })
       .eq('id', tenant.id);
 
@@ -1599,7 +1992,7 @@ function OwnerDashboardShell({
     }
 
     setShowBrandModal(false);
-    notify('Nome, logo e link da barbearia atualizados!');
+    notify('Marca e regras de cancelamento atualizadas!');
     onRefresh();
   };
 
@@ -1661,9 +2054,49 @@ function OwnerDashboardShell({
     openWhatsAppMessage(apt.client_phone, msg);
   };
 
-  const updateAppointmentStatus = async (aptId, nextStatus) => {
-    await supabase.from('appointments').update({ status: nextStatus }).eq('id', aptId);
-    notify(nextStatus === 'completed' ? 'Atendimento concluído e lançado no caixa!' : 'Agendamento cancelado.');
+  const handleNotifyCancellationWhatsApp = (apt) => {
+    const msg = `Olá *${apt.client_name}*, aqui é da *${tenant.name}*. Confirmamos o cancelamento do seu horário do dia *${apt.date}* às *${apt.time?.slice(0, 5)}*. Quando quiser reagendar, acesse: ${window.location.origin}/b/${tenant.slug}`;
+    openWhatsAppMessage(apt.client_phone, msg);
+  };
+
+  const handleOpenRepescagem = (apt) => {
+    const brb = barbers.find((b) => b.id === apt.barber_id);
+    const text = `Fala {nome}! Liberou um horário aqui na *${tenant.name}* para *${apt.date}* às *${apt.time?.slice(0, 5)}*${brb ? ` com ${brb.name}` : ''}. Quer garantir essa vaga? Agende direto: ${window.location.origin}/b/${tenant.slug}`;
+    setPromoTemplate(text);
+    setRepescagemSlot({ date: apt.date, time: apt.time?.slice(0, 5) });
+    setActiveTab('clientes');
+    notify('Texto de vaga liberada carregado! Escolha o cliente para disparar.');
+  };
+
+  const updateAppointmentStatus = async (apt, nextStatus) => {
+    const payload = { status: nextStatus };
+    if (nextStatus === 'cancelled') {
+      payload.cancellation_reason = 'Cancelado pela barbearia';
+    } else if (nextStatus === 'no_show') {
+      payload.cancellation_reason = 'Cliente faltou (No-show)';
+    }
+
+    await supabase.from('appointments').update(payload).eq('id', apt.id);
+
+    // Incrementa contador de faltas (no-show) na ficha do cliente
+    if (nextStatus === 'no_show' && apt.client_phone) {
+      const digits = apt.client_phone.replace(/\D/g, '');
+      const matchedClient = clients.find((c) => c.phone_clean === digits);
+      if (matchedClient) {
+        await supabase
+          .from('clients')
+          .update({ no_show_count: (matchedClient.no_show_count || 0) + 1 })
+          .eq('id', matchedClient.id);
+      }
+    }
+
+    if (nextStatus === 'completed') {
+      notify('Atendimento concluído e lançado no caixa!');
+    } else if (nextStatus === 'no_show') {
+      notify('Falta (No-show) registrada no histórico do cliente.');
+    } else {
+      notify('Agendamento cancelado e horário liberado.');
+    }
     onRefresh();
   };
 
@@ -1816,7 +2249,9 @@ function OwnerDashboardShell({
     onRefresh();
   };
 
-  const todayAppointments = appointments.filter((a) => a.date === todayStr && a.status !== 'cancelled');
+  const todayAppointments = appointments.filter(
+    (a) => a.date === todayStr && a.status !== 'cancelled' && a.status !== 'no_show'
+  );
   const monthCompletedApts = appointments.filter(
     (a) => a.status === 'completed' && a.date?.startsWith(selectedMonth)
   );
@@ -1870,10 +2305,11 @@ function OwnerDashboardShell({
               setBrandName(tenant.name || '');
               setBrandSlug(tenant.slug || '');
               setBrandLogoUrl(tenant.logo_url || '');
+              setMinCancelHours(String(tenant.min_cancel_hours ?? 2));
               setShowBrandModal(true);
             }}
             className="px-3.5 py-2 rounded-xl bg-zinc-950 border border-zinc-800 text-zinc-200 hover:border-amber-500/50 hover:text-white text-xs font-bold flex items-center gap-1.5 transition"
-            title="Personalizar Nome, Logo e Link"
+            title="Personalizar Nome, Logo e Regras"
           >
             <SlidersHorizontal className="w-3.5 h-3.5 text-amber-400" /> Personalizar Marca
           </button>
@@ -2006,6 +2442,7 @@ function OwnerDashboardShell({
         })}
       </nav>
 
+      {/* ABA AGENDA COM GESTÃO DE CANCELAMENTO, NO-SHOW E REPESCAGEM */}
       {activeTab === 'agenda' && (
         <div className="bg-zinc-900/80 backdrop-blur border border-zinc-800 rounded-3xl p-6">
           <div className="flex flex-wrap items-center justify-between gap-2 mb-5">
@@ -2014,9 +2451,12 @@ function OwnerDashboardShell({
                 <Calendar className="w-4 h-4 text-amber-400" /> Agendamentos da Barbearia
               </h2>
               <p className="text-xs text-zinc-400 mt-0.5">
-                Envie confirmação direta no WhatsApp do cliente ou conclua o corte para somar no financeiro
+                Conclua atendimentos, registre faltas (No-show) ou ofereça horários cancelados no WhatsApp
               </p>
             </div>
+            <span className="text-[11px] font-bold px-3 py-1.5 rounded-xl bg-zinc-950 border border-zinc-800 text-zinc-400">
+              Antecedência p/ cliente cancelar: <strong className="text-amber-400">{tenant.min_cancel_hours ?? 2}h</strong>
+            </span>
           </div>
 
           {appointments.length === 0 ? (
@@ -2034,6 +2474,9 @@ function OwnerDashboardShell({
               {appointments.map((a) => {
                 const srv = services.find((s) => s.id === a.service_id);
                 const brb = barbers.find((b) => b.id === a.barber_id);
+                const phoneDigits = (a.client_phone || '').replace(/\D/g, '');
+                const clientRecord = clients.find((c) => c.phone_clean === phoneDigits);
+
                 return (
                   <div
                     key={a.id}
@@ -2045,14 +2488,26 @@ function OwnerDashboardShell({
                         <p className="text-[10px] text-zinc-500">{a.date}</p>
                       </div>
                       <div>
-                        <p className="font-bold text-sm text-white">
-                          {a.client_name}{' '}
-                          <span className="text-xs font-normal text-zinc-500">• {a.client_phone}</span>
-                        </p>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="font-bold text-sm text-white">
+                            {a.client_name}{' '}
+                            <span className="text-xs font-normal text-zinc-500">• {a.client_phone}</span>
+                          </p>
+                          {(clientRecord?.no_show_count || 0) > 0 && (
+                            <span className="px-2 py-0.5 rounded bg-rose-500/15 border border-rose-500/30 text-rose-400 text-[10px] font-bold">
+                              {clientRecord.no_show_count} falta(s)
+                            </span>
+                          )}
+                        </div>
                         <p className="text-xs text-zinc-400 mt-0.5">
                           <span className="text-zinc-200 font-semibold">{srv?.name || 'Serviço'}</span>
                           {brb ? ` • Barbeiro: ${brb.name}` : ''}
                         </p>
+                        {a.cancellation_reason && (a.status === 'cancelled' || a.status === 'no_show') && (
+                          <p className="text-[11px] text-rose-400/90 mt-1">
+                            Motivo: {a.cancellation_reason}
+                          </p>
+                        )}
                       </div>
                     </div>
 
@@ -2071,28 +2526,62 @@ function OwnerDashboardShell({
                       {a.status === 'scheduled' ? (
                         <>
                           <button
-                            onClick={() => updateAppointmentStatus(a.id, 'completed')}
+                            onClick={() => updateAppointmentStatus(a, 'completed')}
                             className="px-3.5 py-1.5 rounded-xl bg-amber-500 text-zinc-950 text-xs font-black hover:bg-amber-400 transition"
                           >
                             Concluir
                           </button>
                           <button
-                            onClick={() => updateAppointmentStatus(a.id, 'cancelled')}
+                            onClick={() => updateAppointmentStatus(a, 'no_show')}
+                            className="px-3 py-1.5 rounded-xl bg-zinc-900 border border-zinc-700 text-zinc-300 text-xs font-bold hover:text-rose-400 transition inline-flex items-center gap-1"
+                            title="Marcar falta sem aviso"
+                          >
+                            <UserX className="w-3.5 h-3.5" /> Faltou
+                          </button>
+                          <button
+                            onClick={() => updateAppointmentStatus(a, 'cancelled')}
                             className="px-3 py-1.5 rounded-xl bg-rose-500/15 text-rose-400 text-xs font-bold hover:bg-rose-500/25 transition"
                           >
                             Cancelar
                           </button>
                         </>
                       ) : (
-                        <span
-                          className={`px-3 py-1 rounded-full text-xs font-bold ${
-                            a.status === 'completed'
-                              ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/20'
-                              : 'bg-rose-500/15 text-rose-400 border border-rose-500/20'
-                          }`}
-                        >
-                          {a.status === 'completed' ? 'Concluído' : 'Cancelado'}
-                        </span>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span
+                            className={`px-3 py-1 rounded-full text-xs font-bold ${
+                              a.status === 'completed'
+                                ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/20'
+                                : a.status === 'no_show'
+                                ? 'bg-amber-500/15 text-amber-400 border border-amber-500/20'
+                                : 'bg-rose-500/15 text-rose-400 border border-rose-500/20'
+                            }`}
+                          >
+                            {a.status === 'completed'
+                              ? 'Concluído'
+                              : a.status === 'no_show'
+                              ? 'Faltou (No-show)'
+                              : 'Cancelado'}
+                          </span>
+
+                          {(a.status === 'cancelled' || a.status === 'no_show') && (
+                            <>
+                              <button
+                                onClick={() => handleNotifyCancellationWhatsApp(a)}
+                                className="px-2.5 py-1 rounded-lg bg-zinc-900 border border-zinc-800 text-[11px] text-zinc-300 hover:text-white font-bold"
+                                title="Confirmar cancelamento para o cliente"
+                              >
+                                Avisar Cliente
+                              </button>
+                              <button
+                                onClick={() => handleOpenRepescagem(a)}
+                                className="px-2.5 py-1 rounded-lg bg-amber-500/15 border border-amber-500/30 text-[11px] text-amber-400 hover:bg-amber-500/25 font-bold"
+                                title="Oferecer esse horário vago para outros clientes"
+                              >
+                                Repescar Vaga
+                              </button>
+                            </>
+                          )}
+                        </div>
                       )}
                     </div>
                   </div>
@@ -2103,18 +2592,35 @@ function OwnerDashboardShell({
         </div>
       )}
 
+      {/* ABA CLIENTES & PROMOÇÕES */}
       {activeTab === 'clientes' && (
         <div className="space-y-6">
           <div className="bg-zinc-900/80 backdrop-blur border border-amber-500/30 rounded-3xl p-6">
             <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
               <div>
                 <h2 className="font-black text-base text-white flex items-center gap-2">
-                  <Megaphone className="w-4 h-4 text-amber-400" /> Campanha Promocional via WhatsApp
+                  <Megaphone className="w-4 h-4 text-amber-400" />
+                  {repescagemSlot
+                    ? `Repescagem de Horário Livre (${repescagemSlot.date} às ${repescagemSlot.time})`
+                    : 'Campanha Promocional via WhatsApp'}
                 </h2>
                 <p className="text-xs text-zinc-400 mt-0.5">
-                  Personalize o texto abaixo (use <strong>{'{nome}'}</strong> para inserir automaticamente o nome de cada cliente) e clique em <strong>Enviar Promoção</strong> na lista
+                  Personalize o texto abaixo (use <strong>{'{nome}'}</strong> para inserir automaticamente o nome de cada cliente) e clique em <strong>Enviar Mensagem</strong>
                 </p>
               </div>
+              {repescagemSlot && (
+                <button
+                  onClick={() => {
+                    setRepescagemSlot(null);
+                    setPromoTemplate(
+                      `Fala {nome}! Tudo certo? Passando para avisar que estamos com horários especiais essa semana aqui na ${tenant.name}. Garanta seu horário pelo link: ${window.location.origin}/b/${tenant.slug}`
+                    );
+                  }}
+                  className="text-xs text-zinc-400 hover:text-white underline"
+                >
+                  Voltar para texto padrão
+                </button>
+              )}
             </div>
 
             <textarea
@@ -2184,8 +2690,8 @@ function OwnerDashboardShell({
                     <tr>
                       <th className="py-3.5 px-4">Cliente</th>
                       <th className="py-3.5 px-4">WhatsApp</th>
-                      <th className="py-3.5 px-4">Frequência</th>
-                      <th className="py-3.5 px-4">Último Agendamento</th>
+                      <th className="py-3.5 px-4">Histórico</th>
+                      <th className="py-3.5 px-4">Última Visita</th>
                       <th className="py-3.5 px-4 text-right">Disparo Direto</th>
                     </tr>
                   </thead>
@@ -2194,10 +2700,15 @@ function OwnerDashboardShell({
                       <tr key={c.id} className="hover:bg-zinc-900/50">
                         <td className="py-3.5 px-4 font-bold text-white text-sm">{c.name}</td>
                         <td className="py-3.5 px-4 text-zinc-300 font-medium">{c.phone}</td>
-                        <td className="py-3.5 px-4">
+                        <td className="py-3.5 px-4 space-x-1.5">
                           <span className="px-2.5 py-1 rounded-lg bg-amber-500/15 text-amber-400 font-bold">
                             {c.total_visits} {c.total_visits === 1 ? 'visita' : 'visitas'}
                           </span>
+                          {(c.no_show_count || 0) > 0 && (
+                            <span className="px-2 py-1 rounded-lg bg-rose-500/15 text-rose-400 font-bold">
+                              {c.no_show_count} falta(s)
+                            </span>
+                          )}
                         </td>
                         <td className="py-3.5 px-4 text-zinc-400">{c.last_visit || '—'}</td>
                         <td className="py-3.5 px-4 text-right space-x-2">
@@ -2205,7 +2716,7 @@ function OwnerDashboardShell({
                             onClick={() => handleSendPromoWhatsApp(c)}
                             className="px-3.5 py-2 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-bold inline-flex items-center gap-1.5 hover:bg-emerald-500/30 transition"
                           >
-                            <MessageCircle className="w-3.5 h-3.5" /> Enviar Promoção
+                            <MessageCircle className="w-3.5 h-3.5" /> Enviar Mensagem
                           </button>
                           <button
                             onClick={() => handleDeleteClient(c.id)}
@@ -2224,6 +2735,7 @@ function OwnerDashboardShell({
         </div>
       )}
 
+      {/* ABA SERVIÇOS */}
       {activeTab === 'servicos' && (
         <div className="bg-zinc-900/80 backdrop-blur border border-zinc-800 rounded-3xl p-6">
           <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
@@ -2335,6 +2847,7 @@ function OwnerDashboardShell({
         </div>
       )}
 
+      {/* ABA BARBEIROS */}
       {activeTab === 'barbeiros' && (
         <div className="bg-zinc-900/80 backdrop-blur border border-zinc-800 rounded-3xl p-6">
           <h2 className="font-black text-base text-white mb-4 flex items-center gap-2">
@@ -2414,6 +2927,7 @@ function OwnerDashboardShell({
         </div>
       )}
 
+      {/* ABA FINANCEIRO */}
       {activeTab === 'financeiro' && (
         <div className="space-y-6">
           <div className="flex flex-wrap items-center justify-between gap-3 bg-zinc-900/80 backdrop-blur border border-zinc-800 rounded-3xl p-5">
@@ -2529,6 +3043,7 @@ function OwnerDashboardShell({
         </div>
       )}
 
+      {/* ABA ESTOQUE */}
       {activeTab === 'estoque' && (
         <div className="bg-zinc-900/80 backdrop-blur border border-zinc-800 rounded-3xl p-6">
           <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
@@ -2651,12 +3166,12 @@ function OwnerDashboardShell({
         </div>
       )}
 
-      {/* MODAL IDENTIDADE VISUAL (LOGO PRÓPRIA, NOME E LINK) */}
+      {/* MODAL IDENTIDADE VISUAL & POLÍTICA DE CANCELAMENTO */}
       {showBrandModal && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm overflow-y-auto flex items-center justify-center p-4">
           <div className="w-full max-w-md bg-zinc-900 border border-zinc-800 rounded-3xl p-6 shadow-2xl my-8">
             <div className="flex items-center justify-between mb-5">
-              <h3 className="font-black text-base text-white">Identidade Visual da Barbearia</h3>
+              <h3 className="font-black text-base text-white">Marca e Regras da Barbearia</h3>
               <button onClick={() => setShowBrandModal(false)} className="p-1.5 text-zinc-400 hover:text-white">
                 <XCircle className="w-5 h-5" />
               </button>
@@ -2703,12 +3218,30 @@ function OwnerDashboardShell({
                 />
               </div>
 
+              <div>
+                <label className="block text-[11px] font-bold uppercase text-zinc-400 mb-1">
+                  Prazo Mínimo para o Cliente Cancelar pelo Site
+                </label>
+                <select
+                  value={minCancelHours}
+                  onChange={(e) => setMinCancelHours(e.target.value)}
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-sm text-white"
+                >
+                  <option value="0">Livre (pode cancelar a qualquer momento)</option>
+                  <option value="1">Até 1 hora antes do corte</option>
+                  <option value="2">Até 2 horas antes do corte (Recomendado)</option>
+                  <option value="4">Até 4 horas antes do corte</option>
+                  <option value="6">Até 6 horas antes do corte</option>
+                  <option value="24">Até 24 horas antes do corte</option>
+                </select>
+              </div>
+
               <button
                 type="submit"
                 disabled={uploadingLogo}
                 className="w-full py-3.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-zinc-950 font-black text-sm transition"
               >
-                Salvar Identidade Visual
+                Salvar Configurações
               </button>
             </form>
           </div>
@@ -2717,4 +3250,3 @@ function OwnerDashboardShell({
     </div>
   );
 }
-
