@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { supabase } from './supabaseClient';
 import AgendaCalendarReport from './AgendaCalendarReport';
+
 const COMMERCIAL_WHATSAPP = '5582999362164';
 const COMMERCIAL_PHONE_DISPLAY = '(82) 99936-2164';
 
@@ -2442,9 +2443,21 @@ function OwnerDashboardShell({
         })}
       </nav>
 
-      {/* ABA AGENDA COM GESTÃO DE CANCELAMENTO, NO-SHOW E REPESCAGEM */}
+      {/* ABA AGENDA COM CALENDÁRIO INTERATIVO, RELATÓRIO MENSAL PDF E GESTÃO */}
       {activeTab === 'agenda' && (
-        <div className="bg-zinc-900/80 backdrop-blur border border-zinc-800 rounded-3xl p-6">
+        <div className="space-y-6">
+          <AgendaCalendarReport
+            appointments={appointments}
+            services={services}
+            barbers={barbers}
+            barbershopName={tenant?.name || 'Minha Barbearia'}
+            onUpdateStatus={(aptId, newStatus) => {
+              const targetApt = appointments.find((item) => item.id === aptId);
+              if (targetApt) updateAppointmentStatus(targetApt, newStatus);
+            }}
+          />
+
+          <div className="bg-zinc-900/80 backdrop-blur border border-zinc-800 rounded-3xl p-6">
           <div className="flex flex-wrap items-center justify-between gap-2 mb-5">
             <div>
               <h2 className="font-black text-base text-white flex items-center gap-2">
@@ -2589,6 +2602,7 @@ function OwnerDashboardShell({
               })}
             </div>
           )}
+          </div>
         </div>
       )}
 
