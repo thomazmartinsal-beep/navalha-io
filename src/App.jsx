@@ -2,12 +2,16 @@ import React, { useState, useEffect } from 'react';
 import {
   Scissors, Calendar, Users, Shield, Crown, CheckCircle2,
   XCircle, Plus, Lock, Unlock, LogOut, ArrowLeft,
-  Store, Sparkles, Eye, Loader2, DollarSign, Package,
+  Store, Sparkles, Eye, Loader2, Package,
   Trash2, Edit3, Check, TrendingUp, AlertTriangle, ShoppingBag,
   Link2, ExternalLink, Copy, Clock, Phone,
-  BarChart3, SlidersHorizontal, ChevronRight, MessageCircle, Megaphone, Search, Webhook
+  BarChart3, SlidersHorizontal, ChevronRight, MessageCircle, Megaphone, Search, Webhook,
+  Smartphone, Play, Pause, Send
 } from 'lucide-react';
 import { supabase } from './supabaseClient';
+
+const COMMERCIAL_WHATSAPP = '5582999362164';
+const COMMERCIAL_PHONE_DISPLAY = '(82) 99936-2164';
 
 const BrandLogo = ({ title = 'NAVALHA', badge = '.IO', subtitle = 'Gestão & Agendamento Inteligente' }) => (
   <div className="flex items-center gap-3 select-none">
@@ -34,7 +38,6 @@ const TIME_SLOTS = [
   '16:50', '17:30', '18:10', '18:50', '19:30'
 ];
 
-// Formata telefone brasileiro para link oficial wa.me (55 + DDD + número)
 const formatWhatsAppNumber = (rawPhone) => {
   const digits = (rawPhone || '').replace(/\D/g, '');
   if (!digits) return '';
@@ -203,7 +206,6 @@ export default function App() {
     );
   }
 
-  // ROTA EXCLUSIVA DO CLIENTE FINAL: /b/slug-da-barbearia
   if (publicSlug) {
     const shop = tenants.find((t) => t.slug === publicSlug && t.status !== 'blocked');
     return (
@@ -368,7 +370,6 @@ export default function App() {
 
 /* ============================================================================
    1. PÁGINA EXCLUSIVA DE AGENDAMENTO DA BARBEARIA (/b/slug)
-   Salva cliente na base CRM + Dispara Webhook WhatsApp (se configurado) + Botão WhatsApp
    ============================================================================ */
 function DedicatedShopBookingPage({ shop, services, barbers, existingAppointments, onAppointmentCreated, notify }) {
   const todayStr = new Date().toISOString().slice(0, 10);
@@ -411,7 +412,6 @@ function DedicatedShopBookingPage({ shop, services, barbers, existingAppointment
     const cleanPhone = clientPhone.trim();
     const phoneDigits = cleanPhone.replace(/\D/g, '');
 
-    // 1. Insere o agendamento
     const { error } = await supabase.from('appointments').insert({
       tenant_id: shop.id,
       service_id: selectedServiceId,
@@ -430,7 +430,6 @@ function DedicatedShopBookingPage({ shop, services, barbers, existingAppointment
       return;
     }
 
-    // 2. Salva ou atualiza o cliente na base CRM da barbearia (para campanhas de promoção)
     if (phoneDigits) {
       const { data: existingClient } = await supabase
         .from('clients')
@@ -461,7 +460,6 @@ function DedicatedShopBookingPage({ shop, services, barbers, existingAppointment
       }
     }
 
-    // 3. Se a barbearia tiver um Webhook de WhatsApp configurado (Evolution API / Z-API / Make / n8n), dispara automaticamente
     if (shop.whatsapp_webhook_url) {
       try {
         fetch(shop.whatsapp_webhook_url, {
@@ -792,78 +790,420 @@ function DedicatedShopBookingPage({ shop, services, barbers, existingAppointment
 }
 
 /* ============================================================================
-   2. PORTAL INSTITUCIONAL
+   2. PORTAL INSTITUCIONAL COM DEMONSTRAÇÃO INTERATIVA (ESTILO GIF/SMARTPHONE)
+      E CONTATO COMERCIAL PARA ORÇAMENTO: (82) 99936-2164
    ============================================================================ */
 function PlatformHomePortal({ onOpenLogin }) {
+  const [demoStep, setDemoStep] = useState(0);
+  const [isPlaying, setIsPlaying] = useState(true);
+  const [quoteShopName, setQuoteShopName] = useState('');
+  const [quoteBarbersCount, setQuoteBarbersCount] = useState('2 a 4 cadeiras');
+
+  const demoSteps = [
+    {
+      stepNumber: '1',
+      title: 'Cliente abre o link da bio',
+      caption: 'Visualiza os serviços, valores e duração sem precisar baixar aplicativo.',
+    },
+    {
+      stepNumber: '2',
+      title: 'Escolhe o barbeiro favorito',
+      caption: 'Seleciona o profissional ou o primeiro horário disponível na equipe.',
+    },
+    {
+      stepNumber: '3',
+      title: 'Marca o horário livre',
+      caption: 'Horários já ocupados ficam bloqueados automaticamente para evitar choque.',
+    },
+    {
+      stepNumber: '4',
+      title: 'Confirmação e WhatsApp',
+      caption: 'Reserva entra na agenda do dono e o cliente recebe comprovante na hora.',
+    },
+  ];
+
+  useEffect(() => {
+    if (!isPlaying) return;
+    const timer = setInterval(() => {
+      setDemoStep((prev) => (prev + 1) % 4);
+    }, 2600);
+    return () => clearInterval(timer);
+  }, [isPlaying]);
+
+  const handleRequestQuote = (e) => {
+    if (e) e.preventDefault();
+    const shopInfo = quoteShopName.trim() ? ` para a *${quoteShopName.trim()}*` : '';
+    const msg = `Olá! Vi a demonstração do sistema *Navalha.io* e gostaria de solicitar um orçamento${shopInfo} (${quoteBarbersCount}).`;
+    openWhatsAppMessage(COMMERCIAL_WHATSAPP, msg);
+  };
+
   return (
-    <div className="max-w-5xl mx-auto px-4 py-6 min-h-screen flex flex-col justify-between">
-      <header className="flex items-center justify-between py-3 px-4 rounded-2xl bg-zinc-900/60 backdrop-blur border border-zinc-800/80">
+    <div className="max-w-6xl mx-auto px-4 py-6 min-h-screen flex flex-col justify-between">
+      {/* CABEÇALHO */}
+      <header className="flex flex-wrap items-center justify-between gap-3 py-3 px-4 rounded-2xl bg-zinc-900/70 backdrop-blur border border-zinc-800/80">
         <BrandLogo />
-        <button
-          onClick={onOpenLogin}
-          className="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-zinc-950 text-xs sm:text-sm font-black flex items-center gap-2 transition shadow-lg shadow-amber-500/20"
-        >
-          <Shield className="w-4 h-4" /> Entrar no Painel
-        </button>
-      </header>
-
-      <main className="text-center max-w-3xl mx-auto my-14">
-        <span className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs font-bold mb-6">
-          <Sparkles className="w-3.5 h-3.5" /> Plataforma SaaS de Alta Performance para Barbearias
-        </span>
-        <h1 className="text-4xl sm:text-6xl font-black tracking-tight text-white leading-[1.08]">
-          Sua barbearia no controle total, com{' '}
-          <span className="text-transparent bg-clip-text bg-gradient-to-r from-amber-300 via-amber-400 to-amber-600">
-            link exclusivo
-          </span>{' '}
-          de agendamento.
-        </h1>
-        <p className="text-zinc-400 text-sm sm:text-base mt-6 max-w-xl mx-auto leading-relaxed">
-          Cada unidade ganha sua própria página personalizada para a bio do Instagram, base automática de clientes para promoções no WhatsApp e fechamento financeiro mensal.
-        </p>
-
-        <div className="mt-9 flex flex-wrap items-center justify-center gap-3">
+        <div className="flex items-center gap-2.5">
+          <a
+            href="#orcamento"
+            className="hidden sm:inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 hover:border-amber-500/50 text-amber-400 text-xs font-bold transition"
+          >
+            <MessageCircle className="w-3.5 h-3.5" /> Solicitar Orçamento
+          </a>
           <button
             onClick={onOpenLogin}
-            className="px-7 py-4 rounded-2xl bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 text-zinc-950 font-black text-sm flex items-center gap-2 transition shadow-xl shadow-amber-500/25"
+            className="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-zinc-950 text-xs sm:text-sm font-black flex items-center gap-2 transition shadow-lg shadow-amber-500/20"
           >
-            <Shield className="w-4 h-4" /> Acessar Painel Administrativo
+            <Shield className="w-4 h-4" /> Entrar no Painel
           </button>
         </div>
+      </header>
 
+      {/* HERO + DEMONSTRAÇÃO INTERATIVA ANIMADA */}
+      <main className="my-10 sm:my-14">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 items-center">
+          {/* COLUNA ESQUERDA: PROPOSTA DE VALOR + PASSOS SINCRONIZADOS */}
+          <div className="lg:col-span-7 text-left">
+            <span className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs font-bold mb-5">
+              <Sparkles className="w-3.5 h-3.5" /> Plataforma SaaS Completa para Barbearias
+            </span>
+
+            <h1 className="text-3xl sm:text-5xl font-black tracking-tight text-white leading-[1.1]">
+              Sua barbearia no controle total, com{' '}
+              <span className="text-transparent bg-clip-text bg-gradient-to-r from-amber-300 via-amber-400 to-amber-600">
+                agendamento online
+              </span>{' '}
+              em 15 segundos.
+            </h1>
+
+            <p className="text-zinc-400 text-sm sm:text-base mt-5 max-w-xl leading-relaxed">
+              Elimine mensagens perdidas no WhatsApp. Seu cliente escolhe o corte, o barbeiro e o horário sozinho pelo link da sua bio — enquanto você acompanha lucro líquido, comissões e promoções no painel.
+            </p>
+
+            {/* LINHA DO TEMPO INTERATIVA SINCRONIZADA COM O CELULAR */}
+            <div className="mt-7 grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              {demoSteps.map((item, idx) => {
+                const active = demoStep === idx;
+                return (
+                  <button
+                    key={item.stepNumber}
+                    type="button"
+                    onClick={() => { setDemoStep(idx); setIsPlaying(false); }}
+                    className={`p-3.5 rounded-2xl border text-left transition-all ${
+                      active
+                        ? 'bg-amber-500/15 border-amber-500 shadow-lg shadow-amber-500/10'
+                        : 'bg-zinc-900/60 border-zinc-800/80 hover:border-zinc-700'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <span
+                        className={`w-5 h-5 rounded-md text-[11px] font-black flex items-center justify-center ${
+                          active ? 'bg-amber-500 text-zinc-950' : 'bg-zinc-800 text-zinc-400'
+                        }`}
+                      >
+                        {item.stepNumber}
+                      </span>
+                      <span className={`text-xs font-black ${active ? 'text-white' : 'text-zinc-300'}`}>
+                        {item.title}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-zinc-400 mt-1.5 leading-snug">{item.caption}</p>
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="mt-7 flex flex-wrap items-center gap-3">
+              <button
+                onClick={() => handleRequestQuote()}
+                className="px-6 py-3.5 rounded-2xl bg-gradient-to-r from-emerald-400 to-emerald-500 hover:from-emerald-300 hover:to-emerald-400 text-zinc-950 font-black text-xs sm:text-sm flex items-center gap-2 transition shadow-xl shadow-emerald-500/20"
+              >
+                <MessageCircle className="w-4 h-4" /> Solicitar Orçamento no WhatsApp
+              </button>
+              <button
+                onClick={onOpenLogin}
+                className="px-5 py-3.5 rounded-2xl bg-zinc-900 border border-zinc-800 hover:border-zinc-700 text-zinc-200 font-bold text-xs sm:text-sm flex items-center gap-2 transition"
+              >
+                <Shield className="w-4 h-4 text-amber-400" /> Já sou cliente
+              </button>
+            </div>
+          </div>
+
+          {/* COLUNA DIREITA: SIMULAÇÃO ANIMADA ESTILO SMARTPHONE */}
+          <div className="lg:col-span-5 flex flex-col items-center">
+            <div className="w-full max-w-[340px] rounded-[2.4rem] p-3 bg-gradient-to-b from-zinc-800 via-zinc-900 to-zinc-950 border border-zinc-700/80 shadow-[0_25px_70px_-15px_rgba(245,158,11,0.22)] relative">
+              {/* Barra superior do celular */}
+              <div className="bg-zinc-950 rounded-[1.9rem] overflow-hidden border border-zinc-800/90">
+                <div className="px-4 py-3 bg-zinc-900/90 border-b border-zinc-800 flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-rose-500/80" />
+                    <span className="w-2 h-2 rounded-full bg-amber-400/80" />
+                    <span className="w-2 h-2 rounded-full bg-emerald-500/80" />
+                  </div>
+                  <span className="text-[10px] font-bold text-zinc-400 bg-zinc-950 px-2.5 py-0.5 rounded-full border border-zinc-800">
+                    navalha.io/b/dom-pedro
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setIsPlaying(!isPlaying)}
+                    className="text-amber-400 hover:text-amber-300"
+                    title={isPlaying ? 'Pausar animação' : 'Continuar animação'}
+                  >
+                    {isPlaying ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
+                  </button>
+                </div>
+
+                {/* Cabeçalho da Barbearia Modelo */}
+                <div className="p-4 bg-gradient-to-r from-zinc-900 to-zinc-950 border-b border-zinc-800/80 flex items-center justify-between">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-8 h-8 rounded-xl bg-amber-500 text-zinc-950 flex items-center justify-center font-black">
+                      <Scissors className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <p className="text-xs font-black text-white leading-none">BARBEARIA DOM PEDRO</p>
+                      <p className="text-[10px] text-emerald-400 mt-1 flex items-center gap-1">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
+                        Agendamento Online
+                      </p>
+                    </div>
+                  </div>
+                  <span className="text-[10px] font-black px-2 py-0.5 rounded bg-amber-500/15 text-amber-400">
+                    Passo {demoStep + 1}/4
+                  </span>
+                </div>
+
+                {/* Conteúdo Dinâmico Animado da Tela do Celular */}
+                <div className="p-4 min-h-[295px] flex flex-col justify-between bg-zinc-950">
+                  {demoStep === 0 && (
+                    <div className="space-y-2.5 animate-fadeIn">
+                      <p className="text-[11px] font-black uppercase tracking-wider text-amber-400">
+                        1. Escolha o Serviço
+                      </p>
+                      <div className="p-3 rounded-xl bg-zinc-900 border border-zinc-800 flex justify-between items-center">
+                        <div>
+                          <p className="text-xs font-bold text-zinc-200">Corte Degradê Navalhado</p>
+                          <p className="text-[10px] text-zinc-500">40 min</p>
+                        </div>
+                        <span className="text-xs font-bold text-zinc-300">R$ 45,00</span>
+                      </div>
+                      <div className="p-3 rounded-xl bg-amber-500/15 border-2 border-amber-500 flex justify-between items-center shadow-lg shadow-amber-500/10">
+                        <div>
+                          <p className="text-xs font-black text-white">Combo Corte + Barba ✓</p>
+                          <p className="text-[10px] text-amber-300">60 min • Toalha quente</p>
+                        </div>
+                        <span className="text-xs font-black text-amber-400">R$ 70,00</span>
+                      </div>
+                      <div className="p-3 rounded-xl bg-zinc-900 border border-zinc-800 flex justify-between items-center">
+                        <div>
+                          <p className="text-xs font-bold text-zinc-200">Barba & Ozonioterapia</p>
+                          <p className="text-[10px] text-zinc-500">30 min</p>
+                        </div>
+                        <span className="text-xs font-bold text-zinc-300">R$ 35,00</span>
+                      </div>
+                    </div>
+                  )}
+
+                  {demoStep === 1 && (
+                    <div className="space-y-2.5">
+                      <p className="text-[11px] font-black uppercase tracking-wider text-amber-400">
+                        2. Escolha o Barbeiro
+                      </p>
+                      <div className="p-3 rounded-xl bg-amber-500/15 border-2 border-amber-500 flex items-center justify-between">
+                        <div className="flex items-center gap-2.5">
+                          <div className="w-8 h-8 rounded-lg bg-amber-500 text-zinc-950 font-black text-xs flex items-center justify-center">
+                            LA
+                          </div>
+                          <div>
+                            <p className="text-xs font-black text-white">Lucas Almeida ✓</p>
+                            <p className="text-[10px] text-amber-300">Barbeiro Master</p>
+                          </div>
+                        </div>
+                        <span className="text-[10px] font-bold text-emerald-400">Disponível</span>
+                      </div>
+                      <div className="p-3 rounded-xl bg-zinc-900 border border-zinc-800 flex items-center justify-between">
+                        <div className="flex items-center gap-2.5">
+                          <div className="w-8 h-8 rounded-lg bg-zinc-800 text-zinc-300 font-black text-xs flex items-center justify-center">
+                            RM
+                          </div>
+                          <div>
+                            <p className="text-xs font-bold text-zinc-200">Rafael Martins</p>
+                            <p className="text-[10px] text-zinc-500">Especialista em Degradê</p>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="p-2.5 rounded-xl bg-zinc-900/60 border border-zinc-800 text-[11px] text-zinc-400 text-center">
+                        Serviço: <strong className="text-white">Combo Corte + Barba (R$ 70)</strong>
+                      </div>
+                    </div>
+                  )}
+
+                  {demoStep === 2 && (
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <p className="text-[11px] font-black uppercase tracking-wider text-amber-400">
+                          3. Horários de Hoje
+                        </p>
+                        <span className="text-[10px] text-zinc-400 font-bold">Lucas Almeida</span>
+                      </div>
+                      <div className="grid grid-cols-3 gap-2">
+                        {['14:10', '14:50', '15:30', '16:10', '16:50', '17:30'].map((h) => {
+                          const occupied = h === '14:10' || h === '16:50';
+                          const picked = h === '15:30';
+                          return (
+                            <div
+                              key={h}
+                              className={`py-2 rounded-lg text-center text-xs font-bold border ${
+                                occupied
+                                  ? 'bg-zinc-900/40 border-zinc-900 text-zinc-600 line-through'
+                                  : picked
+                                  ? 'bg-amber-500 border-amber-400 text-zinc-950 font-black shadow-md shadow-amber-500/30'
+                                  : 'bg-zinc-900 border-zinc-800 text-zinc-300'
+                              }`}
+                            >
+                              {h}
+                            </div>
+                          );
+                        })}
+                      </div>
+                      <div className="p-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-[11px] text-zinc-300">
+                        Cliente: <strong className="text-white">Carlos Henrique</strong> • (82) 99888-1122
+                      </div>
+                    </div>
+                  )}
+
+                  {demoStep === 3 && (
+                    <div className="text-center space-y-3 my-auto">
+                      <div className="w-12 h-12 rounded-2xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 flex items-center justify-center mx-auto">
+                        <CheckCircle2 className="w-6 h-6" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-black text-white">Agendamento Confirmado!</p>
+                        <p className="text-[11px] text-zinc-400 mt-0.5">
+                          Hoje às <strong className="text-amber-400">15:30</strong> com Lucas Almeida
+                        </p>
+                      </div>
+                      <div className="p-2.5 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-[11px] text-emerald-300 font-bold flex items-center justify-center gap-1.5">
+                        <MessageCircle className="w-3.5 h-3.5" /> Comprovante enviado no WhatsApp
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Barra de progresso inferior do celular */}
+                  <div className="pt-3 mt-3 border-t border-zinc-900 flex items-center justify-between gap-1.5">
+                    {[0, 1, 2, 3].map((idx) => (
+                      <button
+                        key={idx}
+                        type="button"
+                        onClick={() => { setDemoStep(idx); setIsPlaying(false); }}
+                        className={`h-1.5 flex-1 rounded-full transition-all ${
+                          demoStep === idx ? 'bg-amber-400' : 'bg-zinc-800'
+                        }`}
+                      />
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+            <span className="text-[11px] text-zinc-500 mt-3 flex items-center gap-1.5">
+              <Smartphone className="w-3.5 h-3.5 text-amber-400" /> Demonstração interativa • Clique nos passos para testar
+            </span>
+          </div>
+        </div>
+
+        {/* 3 PILARES DA PLATAFORMA */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-16 text-left">
           <div className="p-5 rounded-3xl bg-zinc-900/70 backdrop-blur border border-zinc-800/90 hover:border-amber-500/30 transition">
             <div className="w-10 h-10 rounded-xl bg-amber-500/15 text-amber-400 flex items-center justify-center mb-3">
               <Link2 className="w-5 h-5" />
             </div>
-            <h3 className="font-bold text-sm text-white">Link Próprio na Bio</h3>
+            <h3 className="font-bold text-sm text-white">Link Exclusivo na Bio</h3>
             <p className="text-xs text-zinc-400 mt-1.5 leading-relaxed">
-              URL exclusiva com bloqueio automático de horários ocupados e seleção de barbeiro.
+              URL personalizada com o nome da sua barbearia e bloqueio automático de horários ocupados.
             </p>
           </div>
           <div className="p-5 rounded-3xl bg-zinc-900/70 backdrop-blur border border-zinc-800/90 hover:border-amber-500/30 transition">
             <div className="w-10 h-10 rounded-xl bg-amber-500/15 text-amber-400 flex items-center justify-center mb-3">
               <Megaphone className="w-5 h-5" />
             </div>
-            <h3 className="font-bold text-sm text-white">Base CRM & WhatsApp</h3>
+            <h3 className="font-bold text-sm text-white">Carteira de Clientes & Promoções</h3>
             <p className="text-xs text-zinc-400 mt-1.5 leading-relaxed">
-              Lista automática de clientes com histórico de visitas para disparar promoções em 1 clique.
+              Todo cliente que agenda fica salvo automaticamente para você disparar promoções no WhatsApp.
             </p>
           </div>
           <div className="p-5 rounded-3xl bg-zinc-900/70 backdrop-blur border border-zinc-800/90 hover:border-amber-500/30 transition">
             <div className="w-10 h-10 rounded-xl bg-amber-500/15 text-amber-400 flex items-center justify-center mb-3">
               <TrendingUp className="w-5 h-5" />
             </div>
-            <h3 className="font-bold text-sm text-white">Financeiro & Estoque</h3>
+            <h3 className="font-bold text-sm text-white">Financeiro & Comissões</h3>
             <p className="text-xs text-zinc-400 mt-1.5 leading-relaxed">
-              Apuração automática de rendimento mensal, comissões por barbeiro e revenda de produtos.
+              Fechamento automático de faturamento, repasse por barbeiro, despesas e estoque de produtos.
             </p>
           </div>
         </div>
+
+        {/* SEÇÃO COMERCIAL: SOLICITAR ORÇAMENTO (82 99936-2164) */}
+        <section
+          id="orcamento"
+          className="mt-14 p-6 sm:p-8 rounded-3xl bg-gradient-to-br from-zinc-900 via-zinc-900 to-zinc-950 border border-amber-500/30 shadow-2xl relative overflow-hidden"
+        >
+          <div className="absolute -right-12 -bottom-12 w-56 h-56 rounded-full bg-emerald-500/10 blur-3xl pointer-events-none" />
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-center relative z-10">
+            <div className="lg:col-span-6">
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 text-xs font-bold mb-3">
+                <MessageCircle className="w-3.5 h-3.5" /> Implantação Rápida • Suporte Direto
+              </span>
+              <h2 className="text-2xl sm:text-3xl font-black text-white leading-tight">
+                Quer colocar o sistema na sua barbearia?
+              </h2>
+              <p className="text-xs sm:text-sm text-zinc-400 mt-2.5 leading-relaxed">
+                Entregamos sua barbearia configurada com seu link exclusivo, serviços e equipe cadastrados no mesmo dia. Fale direto com nosso consultor e peça seu orçamento.
+              </p>
+              <div className="mt-4 inline-flex items-center gap-2 text-sm font-black text-amber-400">
+                <Phone className="w-4 h-4" /> WhatsApp Comercial: {COMMERCIAL_PHONE_DISPLAY}
+              </div>
+            </div>
+
+            <form onSubmit={handleRequestQuote} className="lg:col-span-6 bg-zinc-950/90 border border-zinc-800 rounded-2xl p-5 space-y-3">
+              <div>
+                <label className="block text-[11px] font-bold uppercase text-zinc-400 mb-1">
+                  Nome da sua Barbearia
+                </label>
+                <input
+                  type="text"
+                  value={quoteShopName}
+                  onChange={(e) => setQuoteShopName(e.target.value)}
+                  placeholder="Ex: Barbearia Estilo Livre"
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-xs text-white focus:border-amber-500 focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold uppercase text-zinc-400 mb-1">
+                  Tamanho da Equipe
+                </label>
+                <select
+                  value={quoteBarbersCount}
+                  onChange={(e) => setQuoteBarbersCount(e.target.value)}
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-xs text-white focus:border-amber-500 focus:outline-none"
+                >
+                  <option value="1 cadeira (Autônomo)">1 cadeira (Barbeiro Autônomo)</option>
+                  <option value="2 a 4 cadeiras">2 a 4 cadeiras</option>
+                  <option value="5 ou mais cadeiras / Rede">5 ou mais cadeiras / Multi-unidades</option>
+                </select>
+              </div>
+
+              <button
+                type="submit"
+                className="w-full py-3.5 rounded-xl bg-gradient-to-r from-emerald-400 to-emerald-500 hover:from-emerald-300 hover:to-emerald-400 text-zinc-950 font-black text-xs sm:text-sm flex items-center justify-center gap-2 transition shadow-lg shadow-emerald-500/20"
+              >
+                <Send className="w-4 h-4" /> Solicitar Orçamento ({COMMERCIAL_PHONE_DISPLAY})
+              </button>
+            </form>
+          </div>
+        </section>
       </main>
 
       <footer className="text-center text-xs text-zinc-600 py-5 border-t border-zinc-900">
-        Navalha.io • Tecnologia para Barbearias Modernas
+        Navalha.io • Tecnologia para Barbearias Modernas • Contato: {COMMERCIAL_PHONE_DISPLAY}
       </footer>
     </div>
   );
@@ -1127,8 +1467,7 @@ function SuperAdminConsole({ tenants, onRefresh, onImpersonate, onCopyLink, onLo
 }
 
 /* ============================================================================
-   4. PAINEL EXECUTIVO DO DONO DA BARBEARIA (6 ABAS: AGENDA, CLIENTES & PROMOÇÕES,
-      SERVIÇOS, BARBEIROS, FINANCEIRO E ESTOQUE)
+   4. PAINEL EXECUTIVO DO DONO DA BARBEARIA
    ============================================================================ */
 function OwnerDashboardShell({
   profile,
@@ -1147,13 +1486,11 @@ function OwnerDashboardShell({
 }) {
   const [activeTab, setActiveTab] = useState('agenda');
 
-  // Editor de Link e Webhook WhatsApp
   const [editingSlug, setEditingSlug] = useState(false);
   const [customSlug, setCustomSlug] = useState(tenant?.slug || '');
   const [webhookUrl, setWebhookUrl] = useState(tenant?.whatsapp_webhook_url || '');
   const [showWebhookConfig, setShowWebhookConfig] = useState(false);
 
-  // Estados da Aba Clientes & Promoções
   const [clientSearch, setClientSearch] = useState('');
   const [promoTemplate, setPromoTemplate] = useState(
     `Fala {nome}! Tudo certo? Passando para avisar que estamos com horários especiais essa semana aqui na ${tenant?.name || 'barbearia'}. Garanta seu horário pelo link: ${window.location.origin}/b/${tenant?.slug || ''}`
@@ -1175,11 +1512,11 @@ function OwnerDashboardShell({
   const todayStr = new Date().toISOString().slice(0, 10);
   const [selectedMonth, setSelectedMonth] = useState(currentMonth);
   const [expDesc, setExpDesc] = useState('');
-  const [expCategory, setExpCategory] = useState('Aluguel / Contas');
+  const [expCategory] = useState('Aluguel / Contas');
   const [expAmount, setExpAmount] = useState('');
 
   const [prodName, setProdName] = useState('');
-  const [prodCategory, setProdCategory] = useState('Finalizadores');
+  const [prodCategory] = useState('Finalizadores');
   const [prodCost, setProdCost] = useState('');
   const [prodPrice, setProdPrice] = useState('');
   const [prodQty, setProdQty] = useState('');
@@ -1225,7 +1562,6 @@ function OwnerDashboardShell({
     onRefresh();
   };
 
-  // --- AÇÕES DE CLIENTES & PROMOÇÕES ---
   const handleAddClientManual = async (e) => {
     e.preventDefault();
     const digits = newClientPhone.replace(/\D/g, '');
@@ -1428,7 +1764,6 @@ function OwnerDashboardShell({
     onRefresh();
   };
 
-  // --- CÁLCULOS FINANCEIROS ---
   const todayAppointments = appointments.filter((a) => a.date === todayStr && a.status !== 'cancelled');
   const monthCompletedApts = appointments.filter(
     (a) => a.status === 'completed' && a.date?.startsWith(selectedMonth)
@@ -1536,7 +1871,6 @@ function OwnerDashboardShell({
         </div>
       </header>
 
-      {/* PAINEL EXPANSÍVEL DE WEBHOOK WHATSAPP AUTOMÁTICO */}
       {showWebhookConfig && (
         <form onSubmit={handleSaveWebhook} className="mt-4 p-4 rounded-2xl bg-zinc-900 border border-emerald-500/30 flex flex-wrap items-center gap-3">
           <div className="flex-1 min-w-[240px]">
@@ -1557,7 +1891,6 @@ function OwnerDashboardShell({
         </form>
       )}
 
-      {/* KPIs RÁPIDOS */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 my-5">
         <div className="p-4 rounded-2xl bg-zinc-900/70 border border-zinc-800/90">
           <div className="flex items-center justify-between text-zinc-400 text-xs">
@@ -1600,7 +1933,6 @@ function OwnerDashboardShell({
         </div>
       </div>
 
-      {/* MENU DE NAVEGAÇÃO EM 6 ABAS */}
       <nav className="flex flex-wrap gap-2 mb-6">
         {[
           { id: 'agenda', label: `Agenda (${appointments.length})`, icon: Calendar },
@@ -1629,7 +1961,6 @@ function OwnerDashboardShell({
         })}
       </nav>
 
-      {/* ABA 1: AGENDA COM BOTÃO DIRETO DE CONFIRMAÇÃO NO WHATSAPP */}
       {activeTab === 'agenda' && (
         <div className="bg-zinc-900/80 backdrop-blur border border-zinc-800 rounded-3xl p-6">
           <div className="flex flex-wrap items-center justify-between gap-2 mb-5">
@@ -1684,7 +2015,6 @@ function OwnerDashboardShell({
                       <button
                         onClick={() => handleConfirmAppointmentWhatsApp(a)}
                         className="px-3 py-1.5 rounded-xl bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 text-xs font-bold hover:bg-emerald-500/25 transition inline-flex items-center gap-1.5"
-                        title="Enviar confirmação no WhatsApp do cliente"
                       >
                         <MessageCircle className="w-3.5 h-3.5" /> WhatsApp
                       </button>
@@ -1728,10 +2058,8 @@ function OwnerDashboardShell({
         </div>
       )}
 
-      {/* ABA 2: BASE DE CLIENTES & CAMPANHAS PROMOCIONAIS NO WHATSAPP */}
       {activeTab === 'clientes' && (
         <div className="space-y-6">
-          {/* EDITOR DE MENSAGEM PROMOCIONAL */}
           <div className="bg-zinc-900/80 backdrop-blur border border-amber-500/30 rounded-3xl p-6">
             <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
               <div>
@@ -1752,7 +2080,6 @@ function OwnerDashboardShell({
             />
           </div>
 
-          {/* LISTA DE CLIENTES CADASTRADOS AUTOMATICAMENTE */}
           <div className="bg-zinc-900/80 backdrop-blur border border-zinc-800 rounded-3xl p-6">
             <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
               <div>
@@ -1776,7 +2103,6 @@ function OwnerDashboardShell({
               </div>
             </div>
 
-            {/* Cadastro manual rápido caso queira adicionar cliente antigo */}
             <form onSubmit={handleAddClientManual} className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 mb-6">
               <input
                 type="text"
@@ -1853,7 +2179,6 @@ function OwnerDashboardShell({
         </div>
       )}
 
-      {/* ABA 3: SERVIÇOS */}
       {activeTab === 'servicos' && (
         <div className="bg-zinc-900/80 backdrop-blur border border-zinc-800 rounded-3xl p-6">
           <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
@@ -1965,7 +2290,6 @@ function OwnerDashboardShell({
         </div>
       )}
 
-      {/* ABA 4: BARBEIROS */}
       {activeTab === 'barbeiros' && (
         <div className="bg-zinc-900/80 backdrop-blur border border-zinc-800 rounded-3xl p-6">
           <h2 className="font-black text-base text-white mb-4 flex items-center gap-2">
@@ -2045,7 +2369,6 @@ function OwnerDashboardShell({
         </div>
       )}
 
-      {/* ABA 5: FINANCEIRO MENSAL */}
       {activeTab === 'financeiro' && (
         <div className="space-y-6">
           <div className="flex flex-wrap items-center justify-between gap-3 bg-zinc-900/80 backdrop-blur border border-zinc-800 rounded-3xl p-5">
@@ -2161,7 +2484,6 @@ function OwnerDashboardShell({
         </div>
       )}
 
-      {/* ABA 6: ESTOQUE */}
       {activeTab === 'estoque' && (
         <div className="bg-zinc-900/80 backdrop-blur border border-zinc-800 rounded-3xl p-6">
           <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
