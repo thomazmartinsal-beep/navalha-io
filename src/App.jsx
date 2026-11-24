@@ -9,7 +9,7 @@ import {
   Smartphone, Play, Pause, Send, Upload, RefreshCw, UserX, CalendarClock
 } from 'lucide-react';
 import { supabase } from './supabaseClient';
-
+import AgendaCalendarReport from './AgendaCalendarReport';
 const COMMERCIAL_WHATSAPP = '5582999362164';
 const COMMERCIAL_PHONE_DISPLAY = '(82) 99936-2164';
 
