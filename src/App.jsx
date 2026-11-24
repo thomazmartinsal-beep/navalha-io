@@ -6,18 +6,31 @@ import {
   Trash2, Edit3, Check, TrendingUp, AlertTriangle, ShoppingBag,
   Link2, ExternalLink, Copy, Clock, Phone,
   BarChart3, SlidersHorizontal, ChevronRight, MessageCircle, Megaphone, Search, Webhook,
-  Smartphone, Play, Pause, Send
+  Smartphone, Play, Pause, Send, Upload
 } from 'lucide-react';
 import { supabase } from './supabaseClient';
 
 const COMMERCIAL_WHATSAPP = '5582999362164';
 const COMMERCIAL_PHONE_DISPLAY = '(82) 99936-2164';
 
-const BrandLogo = ({ title = 'NAVALHA', badge = '.IO', subtitle = 'Gestão & Agendamento Inteligente' }) => (
+const BrandLogo = ({
+  title = 'NAVALHA',
+  badge = '.IO',
+  subtitle = 'Gestão & Agendamento Inteligente',
+  logoUrl = null,
+}) => (
   <div className="flex items-center gap-3 select-none">
-    <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-300 via-amber-500 to-amber-600 flex items-center justify-center shadow-lg shadow-amber-500/25 text-zinc-950 font-black ring-1 ring-amber-300/40">
-      <Scissors className="w-5 h-5" />
-    </div>
+    {logoUrl ? (
+      <img
+        src={logoUrl}
+        alt={title}
+        className="w-11 h-11 rounded-xl object-cover border border-amber-500/40 shadow-lg bg-zinc-950 shrink-0"
+      />
+    ) : (
+      <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-300 via-amber-500 to-amber-600 flex items-center justify-center shadow-lg shadow-amber-500/25 text-zinc-950 font-black ring-1 ring-amber-300/40 shrink-0">
+        <Scissors className="w-5 h-5" />
+      </div>
+    )}
     <div>
       <div className="flex items-center gap-1.5">
         <span className="text-lg font-black tracking-tight text-white uppercase">{title}</span>
@@ -512,6 +525,7 @@ function DedicatedShopBookingPage({ shop, services, barbers, existingAppointment
             title={shop.name}
             badge="AGENDAMENTO"
             subtitle="Reserva Online • Confirmação Imediata"
+            logoUrl={shop.logo_url}
           />
           <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-bold">
             <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
@@ -790,8 +804,7 @@ function DedicatedShopBookingPage({ shop, services, barbers, existingAppointment
 }
 
 /* ============================================================================
-   2. PORTAL INSTITUCIONAL COM DEMONSTRAÇÃO INTERATIVA (ESTILO GIF/SMARTPHONE)
-      E CONTATO COMERCIAL PARA ORÇAMENTO: (82) 99936-2164
+   2. PORTAL INSTITUCIONAL COM DEMONSTRAÇÃO INTERATIVA E CONTATO COMERCIAL
    ============================================================================ */
 function PlatformHomePortal({ onOpenLogin }) {
   const [demoStep, setDemoStep] = useState(0);
@@ -839,7 +852,6 @@ function PlatformHomePortal({ onOpenLogin }) {
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-6 min-h-screen flex flex-col justify-between">
-      {/* CABEÇALHO */}
       <header className="flex flex-wrap items-center justify-between gap-3 py-3 px-4 rounded-2xl bg-zinc-900/70 backdrop-blur border border-zinc-800/80">
         <BrandLogo />
         <div className="flex items-center gap-2.5">
@@ -858,10 +870,8 @@ function PlatformHomePortal({ onOpenLogin }) {
         </div>
       </header>
 
-      {/* HERO + DEMONSTRAÇÃO INTERATIVA ANIMADA */}
       <main className="my-10 sm:my-14">
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 items-center">
-          {/* COLUNA ESQUERDA: PROPOSTA DE VALOR + PASSOS SINCRONIZADOS */}
           <div className="lg:col-span-7 text-left">
             <span className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs font-bold mb-5">
               <Sparkles className="w-3.5 h-3.5" /> Plataforma SaaS Completa para Barbearias
@@ -879,7 +889,6 @@ function PlatformHomePortal({ onOpenLogin }) {
               Elimine mensagens perdidas no WhatsApp. Seu cliente escolhe o corte, o barbeiro e o horário sozinho pelo link da sua bio — enquanto você acompanha lucro líquido, comissões e promoções no painel.
             </p>
 
-            {/* LINHA DO TEMPO INTERATIVA SINCRONIZADA COM O CELULAR */}
             <div className="mt-7 grid grid-cols-1 sm:grid-cols-2 gap-2.5">
               {demoSteps.map((item, idx) => {
                 const active = demoStep === idx;
@@ -928,10 +937,8 @@ function PlatformHomePortal({ onOpenLogin }) {
             </div>
           </div>
 
-          {/* COLUNA DIREITA: SIMULAÇÃO ANIMADA ESTILO SMARTPHONE */}
           <div className="lg:col-span-5 flex flex-col items-center">
             <div className="w-full max-w-[340px] rounded-[2.4rem] p-3 bg-gradient-to-b from-zinc-800 via-zinc-900 to-zinc-950 border border-zinc-700/80 shadow-[0_25px_70px_-15px_rgba(245,158,11,0.22)] relative">
-              {/* Barra superior do celular */}
               <div className="bg-zinc-950 rounded-[1.9rem] overflow-hidden border border-zinc-800/90">
                 <div className="px-4 py-3 bg-zinc-900/90 border-b border-zinc-800 flex items-center justify-between">
                   <div className="flex items-center gap-1.5">
@@ -952,7 +959,6 @@ function PlatformHomePortal({ onOpenLogin }) {
                   </button>
                 </div>
 
-                {/* Cabeçalho da Barbearia Modelo */}
                 <div className="p-4 bg-gradient-to-r from-zinc-900 to-zinc-950 border-b border-zinc-800/80 flex items-center justify-between">
                   <div className="flex items-center gap-2.5">
                     <div className="w-8 h-8 rounded-xl bg-amber-500 text-zinc-950 flex items-center justify-center font-black">
@@ -971,7 +977,6 @@ function PlatformHomePortal({ onOpenLogin }) {
                   </span>
                 </div>
 
-                {/* Conteúdo Dinâmico Animado da Tela do Celular */}
                 <div className="p-4 min-h-[295px] flex flex-col justify-between bg-zinc-950">
                   {demoStep === 0 && (
                     <div className="space-y-2.5 animate-fadeIn">
@@ -1087,7 +1092,6 @@ function PlatformHomePortal({ onOpenLogin }) {
                     </div>
                   )}
 
-                  {/* Barra de progresso inferior do celular */}
                   <div className="pt-3 mt-3 border-t border-zinc-900 flex items-center justify-between gap-1.5">
                     {[0, 1, 2, 3].map((idx) => (
                       <button
@@ -1109,7 +1113,6 @@ function PlatformHomePortal({ onOpenLogin }) {
           </div>
         </div>
 
-        {/* 3 PILARES DA PLATAFORMA */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-16 text-left">
           <div className="p-5 rounded-3xl bg-zinc-900/70 backdrop-blur border border-zinc-800/90 hover:border-amber-500/30 transition">
             <div className="w-10 h-10 rounded-xl bg-amber-500/15 text-amber-400 flex items-center justify-center mb-3">
@@ -1117,7 +1120,7 @@ function PlatformHomePortal({ onOpenLogin }) {
             </div>
             <h3 className="font-bold text-sm text-white">Link Exclusivo na Bio</h3>
             <p className="text-xs text-zinc-400 mt-1.5 leading-relaxed">
-              URL personalizada com o nome da sua barbearia e bloqueio automático de horários ocupados.
+              URL personalizada com o nome e a logo da sua barbearia e bloqueio automático de horários ocupados.
             </p>
           </div>
           <div className="p-5 rounded-3xl bg-zinc-900/70 backdrop-blur border border-zinc-800/90 hover:border-amber-500/30 transition">
@@ -1140,7 +1143,6 @@ function PlatformHomePortal({ onOpenLogin }) {
           </div>
         </div>
 
-        {/* SEÇÃO COMERCIAL: SOLICITAR ORÇAMENTO (82 99936-2164) */}
         <section
           id="orcamento"
           className="mt-14 p-6 sm:p-8 rounded-3xl bg-gradient-to-br from-zinc-900 via-zinc-900 to-zinc-950 border border-amber-500/30 shadow-2xl relative overflow-hidden"
@@ -1155,7 +1157,7 @@ function PlatformHomePortal({ onOpenLogin }) {
                 Quer colocar o sistema na sua barbearia?
               </h2>
               <p className="text-xs sm:text-sm text-zinc-400 mt-2.5 leading-relaxed">
-                Entregamos sua barbearia configurada com seu link exclusivo, serviços e equipe cadastrados no mesmo dia. Fale direto com nosso consultor e peça seu orçamento.
+                Entregamos sua barbearia configurada com sua logo, link exclusivo, serviços e equipe cadastrados no mesmo dia. Fale direto com nosso consultor e peça seu orçamento.
               </p>
               <div className="mt-4 inline-flex items-center gap-2 text-sm font-black text-amber-400">
                 <Phone className="w-4 h-4" /> WhatsApp Comercial: {COMMERCIAL_PHONE_DISPLAY}
@@ -1306,7 +1308,18 @@ function SuperAdminConsole({ tenants, onRefresh, onImpersonate, onCopyLink, onLo
             <tbody className="divide-y divide-zinc-800/80">
               {tenants.map((t) => (
                 <tr key={t.id} className="hover:bg-zinc-800/30 transition">
-                  <td className="py-4 px-5 font-bold text-white">{t.name}</td>
+                  <td className="py-4 px-5">
+                    <div className="flex items-center gap-2.5">
+                      {t.logo_url ? (
+                        <img src={t.logo_url} alt={t.name} className="w-8 h-8 rounded-lg object-cover border border-zinc-700" />
+                      ) : (
+                        <div className="w-8 h-8 rounded-lg bg-zinc-800 text-amber-400 flex items-center justify-center">
+                          <Scissors className="w-4 h-4" />
+                        </div>
+                      )}
+                      <span className="font-bold text-white">{t.name}</span>
+                    </div>
+                  </td>
                   <td className="py-4 px-5">
                     <p className="text-zinc-200 font-medium">{t.owner_name}</p>
                     <p className="text-xs text-zinc-500">{t.owner_email}</p>
@@ -1467,7 +1480,7 @@ function SuperAdminConsole({ tenants, onRefresh, onImpersonate, onCopyLink, onLo
 }
 
 /* ============================================================================
-   4. PAINEL EXECUTIVO DO DONO DA BARBEARIA
+   4. PAINEL EXECUTIVO DO DONO DA BARBEARIA (COM PERSONALIZAÇÃO DE LOGO E NOME)
    ============================================================================ */
 function OwnerDashboardShell({
   profile,
@@ -1486,8 +1499,13 @@ function OwnerDashboardShell({
 }) {
   const [activeTab, setActiveTab] = useState('agenda');
 
-  const [editingSlug, setEditingSlug] = useState(false);
-  const [customSlug, setCustomSlug] = useState(tenant?.slug || '');
+  // Identidade Visual (Logo, Nome e Link)
+  const [showBrandModal, setShowBrandModal] = useState(false);
+  const [brandName, setBrandName] = useState(tenant?.name || '');
+  const [brandSlug, setBrandSlug] = useState(tenant?.slug || '');
+  const [brandLogoUrl, setBrandLogoUrl] = useState(tenant?.logo_url || '');
+  const [uploadingLogo, setUploadingLogo] = useState(false);
+
   const [webhookUrl, setWebhookUrl] = useState(tenant?.whatsapp_webhook_url || '');
   const [showWebhookConfig, setShowWebhookConfig] = useState(false);
 
@@ -1532,22 +1550,56 @@ function OwnerDashboardShell({
     );
   }
 
-  const handleSaveCustomSlug = async () => {
-    const cleanSlug = customSlug
+  const handleUploadLogoFile = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadingLogo(true);
+    const ext = file.name.split('.').pop();
+    const filePath = `${tenant.id}-${Date.now()}.${ext}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from('barbershop-logos')
+      .upload(filePath, file, { upsert: true });
+
+    if (uploadError) {
+      setUploadingLogo(false);
+      notify('Erro ao enviar imagem: ' + uploadError.message);
+      return;
+    }
+
+    const { data } = supabase.storage.from('barbershop-logos').getPublicUrl(filePath);
+    setBrandLogoUrl(data.publicUrl);
+    setUploadingLogo(false);
+    notify('Logo carregada! Clique em Salvar Identidade Visual.');
+  };
+
+  const handleSaveBrandIdentity = async (e) => {
+    e.preventDefault();
+    const cleanSlug = brandSlug
       .toLowerCase()
       .normalize('NFD')
       .replace(/[\u0300-\u036f]/g, '')
       .replace(/[^a-z0-9-]+/g, '-')
       .replace(/^-+|-+$/g, '');
 
-    if (!cleanSlug) return;
-    const { error } = await supabase.from('tenants').update({ slug: cleanSlug }).eq('id', tenant.id);
+    if (!brandName.trim() || !cleanSlug) return;
+
+    const { error } = await supabase
+      .from('tenants')
+      .update({
+        name: brandName.trim(),
+        slug: cleanSlug,
+        logo_url: brandLogoUrl.trim() || null,
+      })
+      .eq('id', tenant.id);
+
     if (error) {
       notify('Esse link já está em uso por outra barbearia.');
       return;
     }
-    setEditingSlug(false);
-    notify(`Link atualizado para /b/${cleanSlug}`);
+
+    setShowBrandModal(false);
+    notify('Nome, logo e link da barbearia atualizados!');
     onRefresh();
   };
 
@@ -1805,62 +1857,55 @@ function OwnerDashboardShell({
   return (
     <div className="max-w-6xl mx-auto px-4 py-6">
       <header className="flex flex-wrap items-center justify-between gap-4 p-4 rounded-3xl bg-zinc-900/80 backdrop-blur border border-zinc-800">
-        <BrandLogo title={tenant.name} badge="GESTÃO" subtitle={`Proprietário: ${profile?.full_name || tenant.owner_name}`} />
+        <BrandLogo
+          title={tenant.name}
+          badge="GESTÃO"
+          subtitle={`Proprietário: ${profile?.full_name || tenant.owner_name}`}
+          logoUrl={tenant.logo_url}
+        />
 
         <div className="flex flex-wrap items-center gap-2">
-          {editingSlug ? (
-            <div className="flex items-center gap-1.5 bg-zinc-950 border border-amber-500/50 rounded-xl px-2.5 py-1">
-              <span className="text-[11px] text-zinc-500">/b/</span>
-              <input
-                type="text"
-                value={customSlug}
-                onChange={(e) => setCustomSlug(e.target.value)}
-                className="w-32 bg-transparent text-xs text-white font-bold focus:outline-none"
-              />
-              <button onClick={handleSaveCustomSlug} className="p-1 rounded bg-emerald-500 text-zinc-950">
-                <Check className="w-3.5 h-3.5" />
-              </button>
-              <button onClick={() => setEditingSlug(false)} className="p-1 text-zinc-400">
-                <XCircle className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          ) : (
-            <div className="flex items-center gap-1.5">
-              <button
-                onClick={onCopyLink}
-                className="px-3.5 py-2 rounded-xl bg-amber-500/15 border border-amber-500/40 text-amber-400 hover:bg-amber-500/25 text-xs font-bold flex items-center gap-1.5 transition"
-              >
-                <Copy className="w-3.5 h-3.5" /> Copiar Link Exclusivo
-              </button>
-              <button
-                onClick={() => { setCustomSlug(tenant.slug); setEditingSlug(true); }}
-                className="p-2 rounded-xl bg-zinc-950 border border-zinc-800 text-zinc-400 hover:text-white transition"
-                title="Personalizar URL da barbearia"
-              >
-                <SlidersHorizontal className="w-3.5 h-3.5" />
-              </button>
-              <button
-                onClick={() => { setWebhookUrl(tenant.whatsapp_webhook_url || ''); setShowWebhookConfig(!showWebhookConfig); }}
-                className={`p-2 rounded-xl border transition ${
-                  tenant.whatsapp_webhook_url
-                    ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-400'
-                    : 'bg-zinc-950 border-zinc-800 text-zinc-400 hover:text-white'
-                }`}
-                title="Configurar Automação WhatsApp (Webhook)"
-              >
-                <Webhook className="w-3.5 h-3.5" />
-              </button>
-              <a
-                href={`/b/${tenant.slug}`}
-                target="_blank"
-                rel="noreferrer"
-                className="p-2 rounded-xl bg-zinc-950 border border-zinc-800 text-zinc-400 hover:text-white transition"
-                title="Abrir página do cliente"
-              >
-                <ExternalLink className="w-3.5 h-3.5" />
-              </a>
-            </div>
-          )}
+          <button
+            onClick={() => {
+              setBrandName(tenant.name || '');
+              setBrandSlug(tenant.slug || '');
+              setBrandLogoUrl(tenant.logo_url || '');
+              setShowBrandModal(true);
+            }}
+            className="px-3.5 py-2 rounded-xl bg-zinc-950 border border-zinc-800 text-zinc-200 hover:border-amber-500/50 hover:text-white text-xs font-bold flex items-center gap-1.5 transition"
+            title="Personalizar Nome, Logo e Link"
+          >
+            <SlidersHorizontal className="w-3.5 h-3.5 text-amber-400" /> Personalizar Marca
+          </button>
+
+          <button
+            onClick={onCopyLink}
+            className="px-3.5 py-2 rounded-xl bg-amber-500/15 border border-amber-500/40 text-amber-400 hover:bg-amber-500/25 text-xs font-bold flex items-center gap-1.5 transition"
+          >
+            <Copy className="w-3.5 h-3.5" /> Copiar Link Exclusivo
+          </button>
+
+          <button
+            onClick={() => { setWebhookUrl(tenant.whatsapp_webhook_url || ''); setShowWebhookConfig(!showWebhookConfig); }}
+            className={`p-2 rounded-xl border transition ${
+              tenant.whatsapp_webhook_url
+                ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-400'
+                : 'bg-zinc-950 border-zinc-800 text-zinc-400 hover:text-white'
+            }`}
+            title="Configurar Automação WhatsApp (Webhook)"
+          >
+            <Webhook className="w-3.5 h-3.5" />
+          </button>
+
+          <a
+            href={`/b/${tenant.slug}`}
+            target="_blank"
+            rel="noreferrer"
+            className="p-2 rounded-xl bg-zinc-950 border border-zinc-800 text-zinc-400 hover:text-white transition"
+            title="Abrir página do cliente"
+          >
+            <ExternalLink className="w-3.5 h-3.5" />
+          </a>
 
           <button
             onClick={onLogout}
@@ -2605,6 +2650,71 @@ function OwnerDashboardShell({
           </div>
         </div>
       )}
+
+      {/* MODAL IDENTIDADE VISUAL (LOGO PRÓPRIA, NOME E LINK) */}
+      {showBrandModal && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm overflow-y-auto flex items-center justify-center p-4">
+          <div className="w-full max-w-md bg-zinc-900 border border-zinc-800 rounded-3xl p-6 shadow-2xl my-8">
+            <div className="flex items-center justify-between mb-5">
+              <h3 className="font-black text-base text-white">Identidade Visual da Barbearia</h3>
+              <button onClick={() => setShowBrandModal(false)} className="p-1.5 text-zinc-400 hover:text-white">
+                <XCircle className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveBrandIdentity} className="space-y-4">
+              <div className="flex items-center gap-4 p-3.5 rounded-2xl bg-zinc-950 border border-zinc-800">
+                {brandLogoUrl ? (
+                  <img src={brandLogoUrl} alt="Prévia" className="w-14 h-14 rounded-xl object-cover border border-amber-500/40" />
+                ) : (
+                  <div className="w-14 h-14 rounded-xl bg-amber-500/15 text-amber-400 flex items-center justify-center">
+                    <Scissors className="w-6 h-6" />
+                  </div>
+                )}
+                <div className="flex-1">
+                  <label className="cursor-pointer inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-zinc-950 font-black text-xs transition">
+                    {uploadingLogo ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
+                    <span>{uploadingLogo ? 'Enviando...' : 'Enviar Imagem da Logo'}</span>
+                    <input type="file" accept="image/*" onChange={handleUploadLogoFile} className="hidden" />
+                  </label>
+                  <p className="text-[11px] text-zinc-500 mt-1">PNG, JPG ou WebP (quadrada)</p>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold uppercase text-zinc-400 mb-1">Nome da Barbearia</label>
+                <input
+                  type="text"
+                  required
+                  value={brandName}
+                  onChange={(e) => setBrandName(e.target.value)}
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-sm text-white"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold uppercase text-zinc-400 mb-1">Link Exclusivo (/b/...)</label>
+                <input
+                  type="text"
+                  required
+                  value={brandSlug}
+                  onChange={(e) => setBrandSlug(e.target.value)}
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-sm text-white"
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={uploadingLogo}
+                className="w-full py-3.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-zinc-950 font-black text-sm transition"
+              >
+                Salvar Identidade Visual
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
+
