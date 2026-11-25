@@ -42,6 +42,7 @@ export default function AgendaCalendarReport({
 
   const [viewMode, setViewMode] = useState('calendar'); // 'calendar' | 'report'
   const [selectedDate, setSelectedDate] = useState(todayStr);
+  const [showFullMonth, setShowFullMonth] = useState(false);
   const [calendarMonth, setCalendarMonth] = useState(selectedMonth || currentMonthStr);
   const [reportMonth, setReportMonth] = useState(selectedMonth || currentMonthStr);
   const [selectedBarberFilter, setSelectedBarberFilter] = useState('all');
@@ -115,11 +116,17 @@ export default function AgendaCalendarReport({
     return cells;
   }, [calendarMonth]);
 
-  const dailyAppointments = useMemo(() => {
+  // Agendamentos exibidos no painel ao lado do calendário (dia selecionado OU mês inteiro)
+  const displayedAppointments = useMemo(() => {
+    if (showFullMonth) {
+      return filteredByBarber
+        .filter((a) => a.date.startsWith(calendarMonth))
+        .sort((a, b) => `${a.date} ${a.time}`.localeCompare(`${b.date} ${b.time}`));
+    }
     return filteredByBarber
       .filter((a) => a.date === selectedDate)
       .sort((a, b) => a.time.localeCompare(b.time));
-  }, [filteredByBarber, selectedDate]);
+  }, [filteredByBarber, showFullMonth, calendarMonth, selectedDate]);
 
   const monthlyAppointments = useMemo(() => {
     return filteredByBarber
@@ -158,6 +165,12 @@ export default function AgendaCalendarReport({
     if (!isoDate) return '-';
     const [y, m, d] = isoDate.split('-');
     return `${d}/${m}/${y}`;
+  };
+
+  const formatShortDateBR = (isoDate) => {
+    if (!isoDate) return '';
+    const [, m, d] = isoDate.split('-');
+    return `${d}/${m}`;
   };
 
   const formatMonthLabel = (ym) => {
@@ -323,7 +336,7 @@ export default function AgendaCalendarReport({
         </div>
       </div>
 
-      {/* MODO 1: CALENDÁRIO VISUAL + AGENDAMENTOS DO DIA SELECIONADO */}
+      {/* MODO 1: CALENDÁRIO VISUAL + AGENDAMENTOS DO DIA OU MÊS TODO */}
       {viewMode === 'calendar' && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
           {/* Grade do Calendário Mensal */}
@@ -341,11 +354,12 @@ export default function AgendaCalendarReport({
                 <p className="text-sm font-black text-white capitalize">
                   {formatMonthLabel(calendarMonth)}
                 </p>
-                {selectedDate !== todayStr && (
+                {(selectedDate !== todayStr || showFullMonth) && (
                   <button
                     type="button"
                     onClick={() => {
                       setSelectedDate(todayStr);
+                      setShowFullMonth(false);
                       syncMonth(currentMonthStr);
                     }}
                     className="text-[10px] font-bold text-amber-400 hover:underline"
@@ -375,7 +389,7 @@ export default function AgendaCalendarReport({
             <div className="grid grid-cols-7 gap-1">
               {calendarCells.map((cell, idx) => {
                 if (!cell) return <div key={`empty-${idx}`} className="h-11" />;
-                const isSelected = cell.iso === selectedDate;
+                const isSelected = !showFullMonth && cell.iso === selectedDate;
                 const isToday = cell.iso === todayStr;
                 const dayInfo = countsByDate[cell.iso];
                 const activeCount = dayInfo?.active || 0;
@@ -384,7 +398,10 @@ export default function AgendaCalendarReport({
                   <button
                     key={cell.iso}
                     type="button"
-                    onClick={() => setSelectedDate(cell.iso)}
+                    onClick={() => {
+                      setSelectedDate(cell.iso);
+                      setShowFullMonth(false);
+                    }}
                     className={`h-11 rounded-xl flex flex-col items-center justify-center relative transition border ${
                       isSelected
                         ? 'bg-amber-500 border-amber-400 text-zinc-950 font-black shadow-md shadow-amber-500/20'
@@ -411,51 +428,79 @@ export default function AgendaCalendarReport({
             </div>
           </div>
 
-          {/* Lista de Agendamentos do Dia Selecionado */}
+          {/* Lista de Agendamentos (Dia Selecionado ou Mês Todo) */}
           <div className="lg:col-span-7 flex flex-col">
-            <div className="flex items-center justify-between mb-3">
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
               <div>
                 <h3 className="text-sm font-black text-white">
-                  Agenda de {formatDateBR(selectedDate)}
+                  {showFullMonth
+                    ? `Agenda de ${formatMonthLabel(calendarMonth)} (Mês Todo)`
+                    : `Agenda de ${formatDateBR(selectedDate)}`}
                 </h3>
                 <p className="text-[11px] text-zinc-400">
-                  {dailyAppointments.length} horário(s) encontrado(s) neste dia
+                  {displayedAppointments.length} horário(s) encontrado(s){' '}
+                  {showFullMonth ? 'neste mês' : 'neste dia'}
                 </p>
               </div>
-              <input
-                type="date"
-                value={selectedDate}
-                onChange={(e) => {
-                  const val = e.target.value;
-                  if (!val) return;
-                  setSelectedDate(val);
-                  syncMonth(val.slice(0, 7));
-                }}
-                className="px-3 py-1.5 rounded-xl bg-zinc-950 border border-zinc-800 text-xs font-bold text-white focus:outline-none focus:border-amber-500"
-              />
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowFullMonth((prev) => !prev)}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-black transition border ${
+                    showFullMonth
+                      ? 'bg-amber-500 border-amber-400 text-zinc-950 shadow-md shadow-amber-500/20'
+                      : 'bg-amber-500/15 border-amber-500/40 text-amber-400 hover:bg-amber-500 hover:text-zinc-950'
+                  }`}
+                >
+                  {showFullMonth ? 'Filtrar por Dia' : 'Ver Mês Todo'}
+                </button>
+
+                <input
+                  type="date"
+                  value={selectedDate}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    if (!val) return;
+                    setSelectedDate(val);
+                    setShowFullMonth(false);
+                    syncMonth(val.slice(0, 7));
+                  }}
+                  className="px-3 py-1.5 rounded-xl bg-zinc-950 border border-zinc-800 text-xs font-bold text-white focus:outline-none focus:border-amber-500"
+                />
+              </div>
             </div>
 
-            {dailyAppointments.length === 0 ? (
+            {displayedAppointments.length === 0 ? (
               <div className="flex-1 bg-zinc-950/60 border border-dashed border-zinc-800 rounded-2xl p-8 flex flex-col items-center justify-center text-center">
                 <Calendar className="w-7 h-7 text-zinc-600 mb-2" />
                 <p className="text-sm font-semibold text-zinc-400">
-                  Nenhum agendamento para {formatDateBR(selectedDate)}.
+                  {showFullMonth
+                    ? `Nenhum agendamento para ${formatMonthLabel(calendarMonth)}.`
+                    : `Nenhum agendamento para ${formatDateBR(selectedDate)}.`}
                 </p>
                 <p className="text-xs text-zinc-500 mt-1">
-                  Clique em outro dia no calendário ao lado para consultar.
+                  Clique em outro dia no calendário ao lado ou alterne entre dia e mês todo.
                 </p>
               </div>
             ) : (
               <div className="space-y-2.5 max-h-[380px] overflow-y-auto pr-1">
-                {dailyAppointments.map((apt) => (
+                {displayedAppointments.map((apt) => (
                   <div
                     key={apt.id}
                     className="bg-zinc-950 border border-zinc-800/90 rounded-2xl p-3.5 flex flex-wrap items-center justify-between gap-3"
                   >
                     <div className="flex items-center gap-3">
-                      <div className="px-2.5 py-2 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-400 font-black text-xs flex items-center gap-1">
-                        <Clock className="w-3.5 h-3.5" />
-                        {apt.time}
+                      <div className="px-2.5 py-2 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-400 font-black text-xs flex flex-col items-center justify-center min-w-[64px]">
+                        {showFullMonth && (
+                          <span className="text-[10px] font-bold text-zinc-300 leading-none mb-1">
+                            {formatShortDateBR(apt.date)}
+                          </span>
+                        )}
+                        <span className="flex items-center gap-1 leading-none">
+                          <Clock className="w-3.5 h-3.5" />
+                          {apt.time}
+                        </span>
                       </div>
                       <div>
                         <p className="text-sm font-bold text-white flex items-center gap-1.5">
