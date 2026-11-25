@@ -1240,7 +1240,7 @@ function PlatformHomePortal({ onOpenLogin }) {
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-6 min-h-screen flex flex-col justify-between">
-      <header className="flex flex-wrap items-center justify-between gap-3 py-3 px-4 rounded-2xl bg-zinc-900/70 backdrop-blur border border-zinc-800/80">
+      <header className="flex flex-wrap items-center justify-between gap-3 py-3 px-4 rounded-2xl bg-zinc-900/70 backdrop-blur border border-zinc-800">
         <BrandLogo />
         <div className="flex items-center gap-2.5">
           <button
@@ -1936,6 +1936,9 @@ function OwnerDashboardShell({
   const currentMonth = new Date().toISOString().slice(0, 7);
   const todayStr = new Date().toISOString().slice(0, 10);
   const [selectedMonth, setSelectedMonth] = useState(currentMonth);
+  const [agendaMonth, setAgendaMonth] = useState(currentMonth);
+  const [agendaStatusFilter, setAgendaStatusFilter] = useState('all'); // 'all' | 'scheduled' | 'completed' | 'cancelled'
+  const [agendaDayFilter, setAgendaDayFilter] = useState(null); // 'YYYY-MM-DD' ou null
   const [expDesc, setExpDesc] = useState('');
   const [expCategory] = useState('Aluguel / Contas');
   const [expAmount, setExpAmount] = useState('');
@@ -2446,6 +2449,107 @@ function OwnerDashboardShell({
   const allVisibleClientsSelected =
     filteredClients.length > 0 && filteredClients.every((c) => selectedClientIds.includes(c.id));
 
+  // --- Cálculos do Dashboard Visual da Agenda do Mês ---
+  const safeAgendaMonth = agendaMonth || currentMonth;
+  const [agendaYearNum, agendaMonthNum] = safeAgendaMonth.split('-').map(Number);
+  const daysInAgendaMonth = new Date(agendaYearNum, agendaMonthNum, 0).getDate() || 30;
+
+  const monthAgendaApts = appointments.filter((a) => a.date?.startsWith(safeAgendaMonth));
+  const monthAgendaCompleted = monthAgendaApts.filter((a) => a.status === 'completed');
+  const monthAgendaScheduled = monthAgendaApts.filter((a) => a.status === 'scheduled');
+  const monthAgendaCancelled = monthAgendaApts.filter(
+    (a) => a.status === 'cancelled' || a.status === 'no_show'
+  );
+
+  const monthAgendaTotal = monthAgendaApts.length;
+  const monthCompletionRate = monthAgendaTotal
+    ? Math.round((monthAgendaCompleted.length / monthAgendaTotal) * 100)
+    : 0;
+  const monthScheduledRate = monthAgendaTotal
+    ? Math.round((monthAgendaScheduled.length / monthAgendaTotal) * 100)
+    : 0;
+  const monthCancelRate = monthAgendaTotal
+    ? Math.round((monthAgendaCancelled.length / monthAgendaTotal) * 100)
+    : 0;
+
+  const monthDoneRevenue = monthAgendaCompleted.reduce(
+    (acc, a) => acc + Number(a.price_snapshot || 0),
+    0
+  );
+  const monthPendingRevenue = monthAgendaScheduled.reduce(
+    (acc, a) => acc + Number(a.price_snapshot || 0),
+    0
+  );
+
+  const dailyChartData = Array.from({ length: daysInAgendaMonth }, (_, i) => {
+    const day = String(i + 1).padStart(2, '0');
+    const fullDate = `${safeAgendaMonth}-${day}`;
+    const dayApts = monthAgendaApts.filter((a) => a.date === fullDate);
+    const completed = dayApts.filter((a) => a.status === 'completed').length;
+    const scheduled = dayApts.filter((a) => a.status === 'scheduled').length;
+    const cancelled = dayApts.filter(
+      (a) => a.status === 'cancelled' || a.status === 'no_show'
+    ).length;
+    const revenue = dayApts
+      .filter((a) => a.status !== 'cancelled' && a.status !== 'no_show')
+      .reduce((acc, a) => acc + Number(a.price_snapshot || 0), 0);
+
+    return {
+      day,
+      fullDate,
+      total: dayApts.length,
+      completed,
+      scheduled,
+      cancelled,
+      revenue,
+    };
+  });
+
+  const maxDayTotal = Math.max(...dailyChartData.map((d) => d.total), 1);
+
+  const barberMonthStats = barbers
+    .map((b) => {
+      const bApts = monthAgendaApts.filter(
+        (a) => a.barber_id === b.id && a.status !== 'cancelled' && a.status !== 'no_show'
+      );
+      return {
+        id: b.id,
+        name: b.name,
+        count: bApts.length,
+        revenue: bApts.reduce((acc, a) => acc + Number(a.price_snapshot || 0), 0),
+      };
+    })
+    .sort((a, b) => b.count - a.count);
+  const maxBarberMonthCount = Math.max(...barberMonthStats.map((b) => b.count), 1);
+
+  const serviceMonthStats = services
+    .map((s) => {
+      const sApts = monthAgendaApts.filter(
+        (a) => a.service_id === s.id && a.status !== 'cancelled' && a.status !== 'no_show'
+      );
+      return {
+        id: s.id,
+        name: s.name,
+        count: sApts.length,
+        revenue: sApts.reduce((acc, a) => acc + Number(a.price_snapshot || 0), 0),
+      };
+    })
+    .filter((s) => s.count > 0)
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 5);
+  const maxServiceMonthCount = Math.max(...serviceMonthStats.map((s) => s.count), 1);
+
+  const filteredAgendaAppointments = monthAgendaApts
+    .filter((a) => {
+      if (agendaDayFilter && a.date !== agendaDayFilter) return false;
+      if (agendaStatusFilter === 'all') return true;
+      if (agendaStatusFilter === 'cancelled') {
+        return a.status === 'cancelled' || a.status === 'no_show';
+      }
+      return a.status === agendaStatusFilter;
+    })
+    .sort((a, b) => `${b.date} ${b.time}`.localeCompare(`${a.date} ${a.time}`));
+
   return (
     <div className="max-w-6xl mx-auto px-4 py-6">
       <header className="flex flex-wrap items-center justify-between gap-4 p-4 rounded-3xl bg-zinc-900/80 backdrop-blur border border-zinc-800">
@@ -2599,7 +2703,7 @@ function OwnerDashboardShell({
         })}
       </nav>
 
-      {/* ABA AGENDA COM CALENDÁRIO INTERATIVO, RELATÓRIO MENSAL PDF E GESTÃO */}
+      {/* ABA AGENDA COM CALENDÁRIO INTERATIVO, DASHBOARD MENSAL E GESTÃO */}
       {activeTab === 'agenda' && (
         <div className="space-y-6">
           <AgendaCalendarReport
@@ -2607,40 +2711,349 @@ function OwnerDashboardShell({
             services={services}
             barbers={barbers}
             barbershopName={tenant?.name || 'Minha Barbearia'}
+            selectedMonth={safeAgendaMonth}
+            onMonthChange={(nextMonth) => {
+              if (nextMonth) {
+                setAgendaMonth(nextMonth);
+                setAgendaDayFilter(null);
+              }
+            }}
+            onEditAppointment={openEditAppointmentModal}
+            onConfirmWhatsApp={handleConfirmAppointmentWhatsApp}
             onUpdateStatus={(aptId, newStatus) => {
               const targetApt = appointments.find((item) => item.id === aptId);
               if (targetApt) updateAppointmentStatus(targetApt, newStatus);
             }}
           />
 
-          <div className="bg-zinc-900/80 backdrop-blur border border-zinc-800 rounded-3xl p-6">
-            <div className="flex flex-wrap items-center justify-between gap-2 mb-5">
+          <div className="bg-zinc-900/80 backdrop-blur border border-zinc-800 rounded-3xl p-6 space-y-6">
+            {/* Cabeçalho + Seletor de Mês */}
+            <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <h2 className="font-black text-base text-white flex items-center gap-2">
                   <Calendar className="w-4 h-4 text-amber-400" /> Agendamentos da Barbearia
                 </h2>
                 <p className="text-xs text-zinc-400 mt-0.5">
-                  Edite horários no mesmo dia, conclua atendimentos, registre faltas ou ofereça horários cancelados no WhatsApp
+                  Dashboard visual mensal, edição de horários, conclusão de atendimentos e repescagem
                 </p>
               </div>
-              <span className="text-[11px] font-bold px-3 py-1.5 rounded-xl bg-zinc-950 border border-zinc-800 text-zinc-400">
-                Antecedência p/ cliente cancelar: <strong className="text-amber-400">{tenant.min_cancel_hours ?? 2}h</strong>
-              </span>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <input
+                  type="month"
+                  value={safeAgendaMonth}
+                  onChange={(e) => {
+                    if (e.target.value) {
+                      setAgendaMonth(e.target.value);
+                      setAgendaDayFilter(null);
+                    }
+                  }}
+                  className="px-3.5 py-2 rounded-xl bg-zinc-950 border border-zinc-800 text-xs font-bold text-white focus:border-amber-500 focus:outline-none"
+                />
+                <span className="text-[11px] font-bold px-3 py-2 rounded-xl bg-zinc-950 border border-zinc-800 text-zinc-400">
+                  Antecedência p/ cliente cancelar:{' '}
+                  <strong className="text-amber-400">{tenant.min_cancel_hours ?? 2}h</strong>
+                </span>
+              </div>
             </div>
 
-            {appointments.length === 0 ? (
-              <div className="text-center py-10 border border-dashed border-zinc-800 rounded-2xl">
-                <p className="text-sm text-zinc-400 font-medium">Nenhum agendamento recebido ainda.</p>
+            {/* ================= DASHBOARD VISUAL DO MÊS ================= */}
+            <div className="space-y-4">
+              {/* 4 KPIs do Mês */}
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                <div className="p-4 rounded-2xl bg-zinc-950 border border-zinc-800">
+                  <div className="flex items-center justify-between text-zinc-400 text-[11px] font-bold uppercase">
+                    <span>Total no Mês</span>
+                    <BarChart3 className="w-4 h-4 text-amber-400" />
+                  </div>
+                  <p className="text-2xl font-black text-white mt-1.5">{monthAgendaTotal}</p>
+                  <p className="text-[11px] text-zinc-500 mt-0.5">
+                    média de {(monthAgendaTotal / daysInAgendaMonth).toFixed(1)}/dia
+                  </p>
+                </div>
+
+                <div className="p-4 rounded-2xl bg-zinc-950 border border-emerald-500/25">
+                  <div className="flex items-center justify-between text-emerald-400 text-[11px] font-bold uppercase">
+                    <span>Concluídos</span>
+                    <CheckCircle2 className="w-4 h-4" />
+                  </div>
+                  <p className="text-2xl font-black text-emerald-400 mt-1.5">
+                    {monthAgendaCompleted.length}
+                    <span className="text-xs font-bold text-zinc-400 ml-1.5">
+                      ({monthCompletionRate}%)
+                    </span>
+                  </p>
+                  <p className="text-[11px] text-zinc-400 mt-0.5">
+                    Realizado:{' '}
+                    <strong className="text-emerald-400">R$ {monthDoneRevenue.toFixed(2)}</strong>
+                  </p>
+                </div>
+
+                <div className="p-4 rounded-2xl bg-zinc-950 border border-amber-500/25">
+                  <div className="flex items-center justify-between text-amber-400 text-[11px] font-bold uppercase">
+                    <span>Agendados</span>
+                    <Clock className="w-4 h-4" />
+                  </div>
+                  <p className="text-2xl font-black text-amber-400 mt-1.5">
+                    {monthAgendaScheduled.length}
+                    <span className="text-xs font-bold text-zinc-400 ml-1.5">
+                      ({monthScheduledRate}%)
+                    </span>
+                  </p>
+                  <p className="text-[11px] text-zinc-400 mt-0.5">
+                    Previsto:{' '}
+                    <strong className="text-amber-400">R$ {monthPendingRevenue.toFixed(2)}</strong>
+                  </p>
+                </div>
+
+                <div className="p-4 rounded-2xl bg-zinc-950 border border-rose-500/25">
+                  <div className="flex items-center justify-between text-rose-400 text-[11px] font-bold uppercase">
+                    <span>Cancelados / Faltas</span>
+                    <XCircle className="w-4 h-4" />
+                  </div>
+                  <p className="text-2xl font-black text-rose-400 mt-1.5">
+                    {monthAgendaCancelled.length}
+                    <span className="text-xs font-bold text-zinc-400 ml-1.5">
+                      ({monthCancelRate}%)
+                    </span>
+                  </p>
+                  <p className="text-[11px] text-zinc-500 mt-0.5">taxa de perda no mês</p>
+                </div>
+              </div>
+
+              {/* Gráfico de Barras Empilhadas por Dia do Mês */}
+              <div className="p-4 sm:p-5 rounded-2xl bg-zinc-950 border border-zinc-800">
+                <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+                  <div>
+                    <h3 className="text-xs font-black uppercase tracking-wider text-white">
+                      Volume Diário de Agendamentos ({safeAgendaMonth})
+                    </h3>
+                    <p className="text-[11px] text-zinc-500 mt-0.5">
+                      Clique em qualquer dia no gráfico para filtrar a lista e editar os horários daquele dia
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-3 text-[11px] font-bold text-zinc-400">
+                    <span className="inline-flex items-center gap-1.5">
+                      <span className="w-2.5 h-2.5 rounded-sm bg-emerald-400" /> Concluídos
+                    </span>
+                    <span className="inline-flex items-center gap-1.5">
+                      <span className="w-2.5 h-2.5 rounded-sm bg-amber-400" /> Agendados
+                    </span>
+                    <span className="inline-flex items-center gap-1.5">
+                      <span className="w-2.5 h-2.5 rounded-sm bg-rose-500" /> Cancel./Faltas
+                    </span>
+                  </div>
+                </div>
+
+                <div className="overflow-x-auto pb-1">
+                  <div className="min-w-[540px] h-40 flex items-end gap-1 pt-5">
+                    {dailyChartData.map((d) => {
+                      const heightPct = d.total > 0 ? Math.max((d.total / maxDayTotal) * 100, 14) : 4;
+                      const isDaySelected = agendaDayFilter === d.fullDate;
+                      const isToday = d.fullDate === todayStr;
+
+                      return (
+                        <button
+                          key={d.fullDate}
+                          type="button"
+                          onClick={() =>
+                            setAgendaDayFilter((prev) => (prev === d.fullDate ? null : d.fullDate))
+                          }
+                          title={`Dia ${d.day}: ${d.total} total (${d.completed} concluídos, ${d.scheduled} agendados, ${d.cancelled} canc./faltas) • R$ ${d.revenue.toFixed(2)}`}
+                          className={`group flex-1 h-full flex flex-col items-center justify-end rounded-lg px-0.5 py-1 transition ${
+                            isDaySelected
+                              ? 'bg-amber-500/15 ring-1 ring-amber-400'
+                              : 'hover:bg-zinc-900'
+                          }`}
+                        >
+                          {d.total > 0 && (
+                            <span className="text-[9px] font-black text-zinc-400 group-hover:text-white mb-1 leading-none">
+                              {d.total}
+                            </span>
+                          )}
+                          <div className="w-full flex-1 flex items-end">
+                            <div
+                              style={{ height: `${heightPct}%` }}
+                              className={`w-full rounded-t-md overflow-hidden flex flex-col justify-end transition-all ${
+                                d.total === 0 ? 'bg-zinc-900' : ''
+                              }`}
+                            >
+                              {d.cancelled > 0 && (
+                                <div
+                                  style={{ height: `${(d.cancelled / d.total) * 100}%` }}
+                                  className="w-full bg-rose-500"
+                                />
+                              )}
+                              {d.scheduled > 0 && (
+                                <div
+                                  style={{ height: `${(d.scheduled / d.total) * 100}%` }}
+                                  className="w-full bg-amber-400"
+                                />
+                              )}
+                              {d.completed > 0 && (
+                                <div
+                                  style={{ height: `${(d.completed / d.total) * 100}%` }}
+                                  className="w-full bg-emerald-400"
+                                />
+                              )}
+                            </div>
+                          </div>
+                          <span
+                            className={`text-[10px] mt-1.5 font-bold ${
+                              isDaySelected
+                                ? 'text-amber-400'
+                                : isToday
+                                ? 'text-emerald-400'
+                                : 'text-zinc-500'
+                            }`}
+                          >
+                            {d.day}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Barra de Proporção Geral do Mês */}
+                {monthAgendaTotal > 0 && (
+                  <div className="mt-4 pt-3 border-t border-zinc-900">
+                    <div className="w-full h-2 rounded-full bg-zinc-900 overflow-hidden flex">
+                      <div
+                        style={{ width: `${monthCompletionRate}%` }}
+                        className="h-full bg-emerald-400 transition-all duration-500"
+                      />
+                      <div
+                        style={{ width: `${monthScheduledRate}%` }}
+                        className="h-full bg-amber-400 transition-all duration-500"
+                      />
+                      <div
+                        style={{ width: `${monthCancelRate}%` }}
+                        className="h-full bg-rose-500 transition-all duration-500"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Ranking Visual por Barbeiro + Serviços Mais Agendados */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <div className="p-4 rounded-2xl bg-zinc-950 border border-zinc-800">
+                  <h3 className="text-xs font-black uppercase tracking-wider text-zinc-300 mb-3 flex items-center gap-1.5">
+                    <Users className="w-3.5 h-3.5 text-amber-400" /> Agendamentos por Barbeiro
+                  </h3>
+                  {barberMonthStats.length === 0 ? (
+                    <p className="text-xs text-zinc-500">Nenhum barbeiro cadastrado.</p>
+                  ) : (
+                    <div className="space-y-3">
+                      {barberMonthStats.map((b) => (
+                        <div key={b.id}>
+                          <div className="flex justify-between text-xs mb-1">
+                            <span className="font-bold text-zinc-200">{b.name}</span>
+                            <span className="text-zinc-400">
+                              <strong className="text-white">{b.count}</strong> atend. •{' '}
+                              <span className="text-amber-400 font-bold">R$ {b.revenue.toFixed(0)}</span>
+                            </span>
+                          </div>
+                          <div className="w-full h-2 rounded-full bg-zinc-900 overflow-hidden">
+                            <div
+                              className="h-full rounded-full bg-gradient-to-r from-amber-500 to-amber-300 transition-all duration-500"
+                              style={{ width: `${(b.count / maxBarberMonthCount) * 100}%` }}
+                            />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className="p-4 rounded-2xl bg-zinc-950 border border-zinc-800">
+                  <h3 className="text-xs font-black uppercase tracking-wider text-zinc-300 mb-3 flex items-center gap-1.5">
+                    <Scissors className="w-3.5 h-3.5 text-emerald-400" /> Serviços Mais Agendados
+                  </h3>
+                  {serviceMonthStats.length === 0 ? (
+                    <p className="text-xs text-zinc-500">Nenhum serviço agendado neste mês.</p>
+                  ) : (
+                    <div className="space-y-3">
+                      {serviceMonthStats.map((s) => (
+                        <div key={s.id}>
+                          <div className="flex justify-between text-xs mb-1">
+                            <span className="font-bold text-zinc-200">{s.name}</span>
+                            <span className="text-zinc-400">
+                              <strong className="text-white">{s.count}x</strong> •{' '}
+                              <span className="text-emerald-400 font-bold">R$ {s.revenue.toFixed(0)}</span>
+                            </span>
+                          </div>
+                          <div className="w-full h-2 rounded-full bg-zinc-900 overflow-hidden">
+                            <div
+                              className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-emerald-300 transition-all duration-500"
+                              style={{ width: `${(s.count / maxServiceMonthCount) * 100}%` }}
+                            />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* ================= FILTROS DA LISTA DO MÊS ================= */}
+            <div className="flex flex-wrap items-center justify-between gap-2 pt-4 border-t border-zinc-800/80">
+              <div className="flex flex-wrap items-center gap-1.5">
+                {[
+                  { id: 'all', label: `Todos (${monthAgendaTotal})` },
+                  { id: 'scheduled', label: `Agendados (${monthAgendaScheduled.length})` },
+                  { id: 'completed', label: `Concluídos (${monthAgendaCompleted.length})` },
+                  { id: 'cancelled', label: `Cancel./Faltas (${monthAgendaCancelled.length})` },
+                ].map((f) => (
+                  <button
+                    key={f.id}
+                    type="button"
+                    onClick={() => setAgendaStatusFilter(f.id)}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition ${
+                      agendaStatusFilter === f.id
+                        ? 'bg-amber-500 text-zinc-950 font-black'
+                        : 'bg-zinc-950 border border-zinc-800 text-zinc-400 hover:text-white'
+                    }`}
+                  >
+                    {f.label}
+                  </button>
+                ))}
+              </div>
+
+              {agendaDayFilter && (
                 <button
-                  onClick={onCopyLink}
-                  className="mt-3 px-4 py-2 rounded-xl bg-amber-500/15 text-amber-400 text-xs font-bold inline-flex items-center gap-1.5"
+                  type="button"
+                  onClick={() => setAgendaDayFilter(null)}
+                  className="px-3 py-1.5 rounded-xl bg-amber-500/15 border border-amber-500/40 text-amber-400 text-xs font-bold inline-flex items-center gap-1.5 hover:bg-amber-500/25 transition"
                 >
-                  <Copy className="w-3.5 h-3.5" /> Compartilhar Link com Clientes
+                  <span>Dia filtrado: {agendaDayFilter}</span>
+                  <XCircle className="w-3.5 h-3.5" />
                 </button>
+              )}
+            </div>
+
+            {/* ================= LISTA DE AGENDAMENTOS ================= */}
+            {filteredAgendaAppointments.length === 0 ? (
+              <div className="text-center py-10 border border-dashed border-zinc-800 rounded-2xl">
+                <p className="text-sm text-zinc-400 font-medium">
+                  {appointments.length === 0
+                    ? 'Nenhum agendamento recebido ainda.'
+                    : 'Nenhum agendamento encontrado para o período/filtro selecionado.'}
+                </p>
+                {appointments.length === 0 && (
+                  <button
+                    onClick={onCopyLink}
+                    className="mt-3 px-4 py-2 rounded-xl bg-amber-500/15 text-amber-400 text-xs font-bold inline-flex items-center gap-1.5"
+                  >
+                    <Copy className="w-3.5 h-3.5" /> Compartilhar Link com Clientes
+                  </button>
+                )}
               </div>
             ) : (
               <div className="space-y-3">
-                {appointments.map((a) => {
+                {filteredAgendaAppointments.map((a) => {
                   const srv = services.find((s) => s.id === a.service_id);
                   const brb = barbers.find((b) => b.id === a.barber_id);
                   const phoneDigits = (a.client_phone || '').replace(/\D/g, '');
@@ -3410,7 +3823,7 @@ function OwnerDashboardShell({
 
       {/* MODAL EDITAR / REMARCAR AGENDAMENTO (DONO & SUPERADMIN) */}
       {editingApt && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm overflow-y-auto flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-[60] bg-black/80 backdrop-blur-sm overflow-y-auto flex items-center justify-center p-4">
           <div className="w-full max-w-lg bg-zinc-900 border border-zinc-800 rounded-3xl p-6 shadow-2xl my-8">
             <div className="flex items-center justify-between mb-4">
               <div>
