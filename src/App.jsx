@@ -1869,7 +1869,7 @@ function SuperAdminConsole({ tenants, onRefresh, onImpersonate, onCopyLink, onLo
 }
 
 /* ============================================================================
-   4. PAINEL EXECUTIVO DO DONO DA BARBEARIA
+   4. PAINEL EXECUTIVO DO DONO DA BARBEARIA (E SUPER ADMIN)
    ============================================================================ */
 function OwnerDashboardShell({
   profile,
@@ -1898,6 +1898,20 @@ function OwnerDashboardShell({
 
   // Repescagem de vaga cancelada no WhatsApp
   const [repescagemSlot, setRepescagemSlot] = useState(null);
+
+  // Edição / Remarcação de Agendamento pelo Dono ou Superadmin
+  const [editingApt, setEditingApt] = useState(null);
+  const [editDate, setEditDate] = useState('');
+  const [editTime, setEditTime] = useState('');
+  const [editBarberId, setEditBarberId] = useState('');
+  const [editServiceId, setEditServiceId] = useState('');
+  const [savingEdit, setSavingEdit] = useState(false);
+
+  // Seleção em Massa e Disparo Promocional
+  const [selectedClientIds, setSelectedClientIds] = useState([]);
+  const [bulkQueue, setBulkQueue] = useState([]);
+  const [bulkSentIds, setBulkSentIds] = useState([]);
+  const [bulkWebhookSending, setBulkWebhookSending] = useState(false);
 
   const [webhookUrl, setWebhookUrl] = useState(tenant?.whatsapp_webhook_url || '');
   const [showWebhookConfig, setShowWebhookConfig] = useState(false);
@@ -2038,6 +2052,7 @@ function OwnerDashboardShell({
 
   const handleDeleteClient = async (id) => {
     await supabase.from('clients').delete().eq('id', id);
+    setSelectedClientIds((prev) => prev.filter((item) => item !== id));
     notify('Cliente removido da lista.');
     onRefresh();
   };
@@ -2046,6 +2061,144 @@ function OwnerDashboardShell({
     const firstName = client.name.split(' ')[0];
     const personalizedText = promoTemplate.replace(/\{nome\}/gi, firstName);
     openWhatsAppMessage(client.phone, personalizedText);
+  };
+
+  // --- Funções de Edição / Remarcação de Agendamento ---
+  const openEditAppointmentModal = (apt) => {
+    setEditingApt(apt);
+    setEditDate(apt.date || todayStr);
+    setEditTime((apt.time || '09:00').slice(0, 5));
+    setEditBarberId(apt.barber_id || '');
+    setEditServiceId(apt.service_id || '');
+  };
+
+  const handleSaveAppointmentEdit = async (e) => {
+    e.preventDefault();
+    if (!editingApt || !editDate || !editTime) return;
+    setSavingEdit(true);
+
+    const chosenService = services.find((s) => s.id === editServiceId);
+    const payload = {
+      date: editDate,
+      time: editTime,
+      barber_id: editBarberId || null,
+      service_id: editServiceId || editingApt.service_id,
+      price_snapshot: chosenService ? chosenService.price : editingApt.price_snapshot,
+      status: 'scheduled',
+      cancellation_reason: null,
+    };
+
+    const { error } = await supabase
+      .from('appointments')
+      .update(payload)
+      .eq('id', editingApt.id);
+
+    setSavingEdit(false);
+
+    if (error) {
+      notify('Erro ao atualizar agendamento: ' + error.message);
+      return;
+    }
+
+    notify(`Horário atualizado para ${editDate} às ${editTime}!`);
+    setEditingApt(null);
+    onRefresh();
+  };
+
+  const handleNotifyRescheduleWhatsApp = (apt, newDate, newTime) => {
+    const srv = services.find((s) => s.id === (editServiceId || apt.service_id));
+    const brb = barbers.find((b) => b.id === (editBarberId || apt.barber_id));
+    const msg = `Olá *${apt.client_name}*! Aqui é da *${tenant.name}* 💈\n\nSeu horário foi atualizado:\n✂️ *Serviço:* ${srv?.name || 'Atendimento'}\n👤 *Profissional:* ${brb?.name || 'Equipe'}\n📅 *Nova Data:* ${newDate} às *${newTime}*\n\nTe aguardamos!`;
+    openWhatsAppMessage(apt.client_phone, msg);
+  };
+
+  const bookedTimesForEdit = editingApt
+    ? appointments
+        .filter(
+          (a) =>
+            a.id !== editingApt.id &&
+            a.status !== 'cancelled' &&
+            a.status !== 'no_show' &&
+            a.date === editDate &&
+            (!editBarberId || a.barber_id === editBarberId)
+        )
+        .map((a) => a.time?.slice(0, 5))
+    : [];
+
+  // --- Funções de Seleção em Massa & Disparo Promocional ---
+  const toggleSelectClient = (id) => {
+    setSelectedClientIds((prev) =>
+      prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]
+    );
+  };
+
+  const toggleSelectAllClients = () => {
+    const visibleIds = filteredClients.map((c) => c.id);
+    const allSelected =
+      visibleIds.length > 0 && visibleIds.every((id) => selectedClientIds.includes(id));
+    if (allSelected) {
+      setSelectedClientIds((prev) => prev.filter((id) => !visibleIds.includes(id)));
+    } else {
+      setSelectedClientIds((prev) => Array.from(new Set([...prev, ...visibleIds])));
+    }
+  };
+
+  const handleStartBulkQueue = () => {
+    const targets = clients.filter((c) => selectedClientIds.includes(c.id));
+    if (targets.length === 0) {
+      notify('Selecione pelo menos um cliente para disparar.');
+      return;
+    }
+    setBulkSentIds([]);
+    setBulkQueue(targets);
+  };
+
+  const handleSendBulkQueueItem = (client) => {
+    handleSendPromoWhatsApp(client);
+    setBulkSentIds((prev) => (prev.includes(client.id) ? prev : [...prev, client.id]));
+  };
+
+  const handleSendNextInQueue = () => {
+    const nextClient = bulkQueue.find((c) => !bulkSentIds.includes(c.id));
+    if (!nextClient) {
+      notify('Todos os clientes da fila já foram enviados!');
+      return;
+    }
+    handleSendBulkQueueItem(nextClient);
+  };
+
+  const handleBulkPromoWebhook = async () => {
+    if (!tenant?.whatsapp_webhook_url) {
+      notify('Configure primeiro a URL do Webhook WhatsApp.');
+      return;
+    }
+    const targets = clients.filter((c) => selectedClientIds.includes(c.id));
+    if (targets.length === 0) {
+      notify('Selecione pelo menos um cliente.');
+      return;
+    }
+    setBulkWebhookSending(true);
+    let sent = 0;
+    for (const client of targets) {
+      const firstName = client.name.split(' ')[0];
+      const personalizedText = promoTemplate.replace(/\{nome\}/gi, firstName);
+      try {
+        await fetch(tenant.whatsapp_webhook_url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            event: 'promo.bulk_dispatch',
+            barbershop_name: tenant.name,
+            client_name: client.name,
+            client_phone: formatWhatsAppNumber(client.phone),
+            message: personalizedText,
+          }),
+        });
+        sent++;
+      } catch (_) {}
+    }
+    setBulkWebhookSending(false);
+    notify(`Disparo automático via Webhook concluído para ${sent} de ${targets.length} clientes!`);
   };
 
   const handleConfirmAppointmentWhatsApp = (apt) => {
@@ -2290,6 +2443,9 @@ function OwnerDashboardShell({
       c.phone.includes(clientSearch)
   );
 
+  const allVisibleClientsSelected =
+    filteredClients.length > 0 && filteredClients.every((c) => selectedClientIds.includes(c.id));
+
   return (
     <div className="max-w-6xl mx-auto px-4 py-6">
       <header className="flex flex-wrap items-center justify-between gap-4 p-4 rounded-3xl bg-zinc-900/80 backdrop-blur border border-zinc-800">
@@ -2458,150 +2614,158 @@ function OwnerDashboardShell({
           />
 
           <div className="bg-zinc-900/80 backdrop-blur border border-zinc-800 rounded-3xl p-6">
-          <div className="flex flex-wrap items-center justify-between gap-2 mb-5">
-            <div>
-              <h2 className="font-black text-base text-white flex items-center gap-2">
-                <Calendar className="w-4 h-4 text-amber-400" /> Agendamentos da Barbearia
-              </h2>
-              <p className="text-xs text-zinc-400 mt-0.5">
-                Conclua atendimentos, registre faltas (No-show) ou ofereça horários cancelados no WhatsApp
-              </p>
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-5">
+              <div>
+                <h2 className="font-black text-base text-white flex items-center gap-2">
+                  <Calendar className="w-4 h-4 text-amber-400" /> Agendamentos da Barbearia
+                </h2>
+                <p className="text-xs text-zinc-400 mt-0.5">
+                  Edite horários no mesmo dia, conclua atendimentos, registre faltas ou ofereça horários cancelados no WhatsApp
+                </p>
+              </div>
+              <span className="text-[11px] font-bold px-3 py-1.5 rounded-xl bg-zinc-950 border border-zinc-800 text-zinc-400">
+                Antecedência p/ cliente cancelar: <strong className="text-amber-400">{tenant.min_cancel_hours ?? 2}h</strong>
+              </span>
             </div>
-            <span className="text-[11px] font-bold px-3 py-1.5 rounded-xl bg-zinc-950 border border-zinc-800 text-zinc-400">
-              Antecedência p/ cliente cancelar: <strong className="text-amber-400">{tenant.min_cancel_hours ?? 2}h</strong>
-            </span>
-          </div>
 
-          {appointments.length === 0 ? (
-            <div className="text-center py-10 border border-dashed border-zinc-800 rounded-2xl">
-              <p className="text-sm text-zinc-400 font-medium">Nenhum agendamento recebido ainda.</p>
-              <button
-                onClick={onCopyLink}
-                className="mt-3 px-4 py-2 rounded-xl bg-amber-500/15 text-amber-400 text-xs font-bold inline-flex items-center gap-1.5"
-              >
-                <Copy className="w-3.5 h-3.5" /> Compartilhar Link com Clientes
-              </button>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {appointments.map((a) => {
-                const srv = services.find((s) => s.id === a.service_id);
-                const brb = barbers.find((b) => b.id === a.barber_id);
-                const phoneDigits = (a.client_phone || '').replace(/\D/g, '');
-                const clientRecord = clients.find((c) => c.phone_clean === phoneDigits);
+            {appointments.length === 0 ? (
+              <div className="text-center py-10 border border-dashed border-zinc-800 rounded-2xl">
+                <p className="text-sm text-zinc-400 font-medium">Nenhum agendamento recebido ainda.</p>
+                <button
+                  onClick={onCopyLink}
+                  className="mt-3 px-4 py-2 rounded-xl bg-amber-500/15 text-amber-400 text-xs font-bold inline-flex items-center gap-1.5"
+                >
+                  <Copy className="w-3.5 h-3.5" /> Compartilhar Link com Clientes
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {appointments.map((a) => {
+                  const srv = services.find((s) => s.id === a.service_id);
+                  const brb = barbers.find((b) => b.id === a.barber_id);
+                  const phoneDigits = (a.client_phone || '').replace(/\D/g, '');
+                  const clientRecord = clients.find((c) => c.phone_clean === phoneDigits);
 
-                return (
-                  <div
-                    key={a.id}
-                    className="flex flex-wrap justify-between items-center gap-3 p-4 rounded-2xl bg-zinc-950/90 border border-zinc-800/90 hover:border-zinc-700 transition"
-                  >
-                    <div className="flex items-center gap-3.5">
-                      <div className="px-3 py-2 rounded-xl bg-zinc-900 border border-zinc-800 text-center shrink-0">
-                        <p className="text-xs font-black text-amber-400">{a.time?.slice(0, 5)}</p>
-                        <p className="text-[10px] text-zinc-500">{a.date}</p>
-                      </div>
-                      <div>
-                        <div className="flex flex-wrap items-center gap-2">
-                          <p className="font-bold text-sm text-white">
-                            {a.client_name}{' '}
-                            <span className="text-xs font-normal text-zinc-500">• {a.client_phone}</span>
+                  return (
+                    <div
+                      key={a.id}
+                      className="flex flex-wrap justify-between items-center gap-3 p-4 rounded-2xl bg-zinc-950/90 border border-zinc-800/90 hover:border-zinc-700 transition"
+                    >
+                      <div className="flex items-center gap-3.5">
+                        <div className="px-3 py-2 rounded-xl bg-zinc-900 border border-zinc-800 text-center shrink-0">
+                          <p className="text-xs font-black text-amber-400">{a.time?.slice(0, 5)}</p>
+                          <p className="text-[10px] text-zinc-500">{a.date}</p>
+                        </div>
+                        <div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <p className="font-bold text-sm text-white">
+                              {a.client_name}{' '}
+                              <span className="text-xs font-normal text-zinc-500">• {a.client_phone}</span>
+                            </p>
+                            {(clientRecord?.no_show_count || 0) > 0 && (
+                              <span className="px-2 py-0.5 rounded bg-rose-500/15 border border-rose-500/30 text-rose-400 text-[10px] font-bold">
+                                {clientRecord.no_show_count} falta(s)
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-xs text-zinc-400 mt-0.5">
+                            <span className="text-zinc-200 font-semibold">{srv?.name || 'Serviço'}</span>
+                            {brb ? ` • Barbeiro: ${brb.name}` : ''}
                           </p>
-                          {(clientRecord?.no_show_count || 0) > 0 && (
-                            <span className="px-2 py-0.5 rounded bg-rose-500/15 border border-rose-500/30 text-rose-400 text-[10px] font-bold">
-                              {clientRecord.no_show_count} falta(s)
-                            </span>
+                          {a.cancellation_reason && (a.status === 'cancelled' || a.status === 'no_show') && (
+                            <p className="text-[11px] text-rose-400/90 mt-1">
+                              Motivo: {a.cancellation_reason}
+                            </p>
                           )}
                         </div>
-                        <p className="text-xs text-zinc-400 mt-0.5">
-                          <span className="text-zinc-200 font-semibold">{srv?.name || 'Serviço'}</span>
-                          {brb ? ` • Barbeiro: ${brb.name}` : ''}
-                        </p>
-                        {a.cancellation_reason && (a.status === 'cancelled' || a.status === 'no_show') && (
-                          <p className="text-[11px] text-rose-400/90 mt-1">
-                            Motivo: {a.cancellation_reason}
-                          </p>
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-2">
+                        <button
+                          onClick={() => handleConfirmAppointmentWhatsApp(a)}
+                          className="px-3 py-1.5 rounded-xl bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 text-xs font-bold hover:bg-emerald-500/25 transition inline-flex items-center gap-1.5"
+                        >
+                          <MessageCircle className="w-3.5 h-3.5" /> WhatsApp
+                        </button>
+
+                        <span className="px-3 py-1.5 rounded-xl bg-zinc-900 border border-zinc-800 text-amber-400 text-xs font-black">
+                          R$ {Number(a.price_snapshot).toFixed(2)}
+                        </span>
+
+                        <button
+                          onClick={() => openEditAppointmentModal(a)}
+                          className="px-3 py-1.5 rounded-xl bg-zinc-900 border border-zinc-700 text-zinc-200 hover:border-amber-500/50 hover:text-amber-400 text-xs font-bold transition inline-flex items-center gap-1.5"
+                          title="Alterar horário no mesmo dia, data, barbeiro ou serviço"
+                        >
+                          <CalendarClock className="w-3.5 h-3.5" /> Editar Horário
+                        </button>
+
+                        {a.status === 'scheduled' ? (
+                          <>
+                            <button
+                              onClick={() => updateAppointmentStatus(a, 'completed')}
+                              className="px-3.5 py-1.5 rounded-xl bg-amber-500 text-zinc-950 text-xs font-black hover:bg-amber-400 transition"
+                            >
+                              Concluir
+                            </button>
+                            <button
+                              onClick={() => updateAppointmentStatus(a, 'no_show')}
+                              className="px-3 py-1.5 rounded-xl bg-zinc-900 border border-zinc-700 text-zinc-300 text-xs font-bold hover:text-rose-400 transition inline-flex items-center gap-1"
+                              title="Marcar falta sem aviso"
+                            >
+                              <UserX className="w-3.5 h-3.5" /> Faltou
+                            </button>
+                            <button
+                              onClick={() => updateAppointmentStatus(a, 'cancelled')}
+                              className="px-3 py-1.5 rounded-xl bg-rose-500/15 text-rose-400 text-xs font-bold hover:bg-rose-500/25 transition"
+                            >
+                              Cancelar
+                            </button>
+                          </>
+                        ) : (
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <span
+                              className={`px-3 py-1 rounded-full text-xs font-bold ${
+                                a.status === 'completed'
+                                  ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/20'
+                                  : a.status === 'no_show'
+                                  ? 'bg-amber-500/15 text-amber-400 border border-amber-500/20'
+                                  : 'bg-rose-500/15 text-rose-400 border border-rose-500/20'
+                              }`}
+                            >
+                              {a.status === 'completed'
+                                ? 'Concluído'
+                                : a.status === 'no_show'
+                                ? 'Faltou (No-show)'
+                                : 'Cancelado'}
+                            </span>
+
+                            {(a.status === 'cancelled' || a.status === 'no_show') && (
+                              <>
+                                <button
+                                  onClick={() => handleNotifyCancellationWhatsApp(a)}
+                                  className="px-2.5 py-1 rounded-lg bg-zinc-900 border border-zinc-800 text-[11px] text-zinc-300 hover:text-white font-bold"
+                                  title="Confirmar cancelamento para o cliente"
+                                >
+                                  Avisar Cliente
+                                </button>
+                                <button
+                                  onClick={() => handleOpenRepescagem(a)}
+                                  className="px-2.5 py-1 rounded-lg bg-amber-500/15 border border-amber-500/30 text-[11px] text-amber-400 hover:bg-amber-500/25 font-bold"
+                                  title="Oferecer esse horário vago para outros clientes"
+                                >
+                                  Repescar Vaga
+                                </button>
+                              </>
+                            )}
+                          </div>
                         )}
                       </div>
                     </div>
-
-                    <div className="flex flex-wrap items-center gap-2">
-                      <button
-                        onClick={() => handleConfirmAppointmentWhatsApp(a)}
-                        className="px-3 py-1.5 rounded-xl bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 text-xs font-bold hover:bg-emerald-500/25 transition inline-flex items-center gap-1.5"
-                      >
-                        <MessageCircle className="w-3.5 h-3.5" /> WhatsApp
-                      </button>
-
-                      <span className="px-3 py-1.5 rounded-xl bg-zinc-900 border border-zinc-800 text-amber-400 text-xs font-black">
-                        R$ {Number(a.price_snapshot).toFixed(2)}
-                      </span>
-
-                      {a.status === 'scheduled' ? (
-                        <>
-                          <button
-                            onClick={() => updateAppointmentStatus(a, 'completed')}
-                            className="px-3.5 py-1.5 rounded-xl bg-amber-500 text-zinc-950 text-xs font-black hover:bg-amber-400 transition"
-                          >
-                            Concluir
-                          </button>
-                          <button
-                            onClick={() => updateAppointmentStatus(a, 'no_show')}
-                            className="px-3 py-1.5 rounded-xl bg-zinc-900 border border-zinc-700 text-zinc-300 text-xs font-bold hover:text-rose-400 transition inline-flex items-center gap-1"
-                            title="Marcar falta sem aviso"
-                          >
-                            <UserX className="w-3.5 h-3.5" /> Faltou
-                          </button>
-                          <button
-                            onClick={() => updateAppointmentStatus(a, 'cancelled')}
-                            className="px-3 py-1.5 rounded-xl bg-rose-500/15 text-rose-400 text-xs font-bold hover:bg-rose-500/25 transition"
-                          >
-                            Cancelar
-                          </button>
-                        </>
-                      ) : (
-                        <div className="flex flex-wrap items-center gap-1.5">
-                          <span
-                            className={`px-3 py-1 rounded-full text-xs font-bold ${
-                              a.status === 'completed'
-                                ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/20'
-                                : a.status === 'no_show'
-                                ? 'bg-amber-500/15 text-amber-400 border border-amber-500/20'
-                                : 'bg-rose-500/15 text-rose-400 border border-rose-500/20'
-                            }`}
-                          >
-                            {a.status === 'completed'
-                              ? 'Concluído'
-                              : a.status === 'no_show'
-                              ? 'Faltou (No-show)'
-                              : 'Cancelado'}
-                          </span>
-
-                          {(a.status === 'cancelled' || a.status === 'no_show') && (
-                            <>
-                              <button
-                                onClick={() => handleNotifyCancellationWhatsApp(a)}
-                                className="px-2.5 py-1 rounded-lg bg-zinc-900 border border-zinc-800 text-[11px] text-zinc-300 hover:text-white font-bold"
-                                title="Confirmar cancelamento para o cliente"
-                              >
-                                Avisar Cliente
-                              </button>
-                              <button
-                                onClick={() => handleOpenRepescagem(a)}
-                                className="px-2.5 py-1 rounded-lg bg-amber-500/15 border border-amber-500/30 text-[11px] text-amber-400 hover:bg-amber-500/25 font-bold"
-                                title="Oferecer esse horário vago para outros clientes"
-                              >
-                                Repescar Vaga
-                              </button>
-                            </>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
+                  );
+                })}
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -2619,7 +2783,7 @@ function OwnerDashboardShell({
                     : 'Campanha Promocional via WhatsApp'}
                 </h2>
                 <p className="text-xs text-zinc-400 mt-0.5">
-                  Personalize o texto abaixo (use <strong>{'{nome}'}</strong> para inserir automaticamente o nome de cada cliente) e clique em <strong>Enviar Mensagem</strong>
+                  Personalize o texto abaixo (use <strong>{'{nome}'}</strong> para inserir automaticamente o nome de cada cliente), selecione todos ou escolha clientes e clique em <strong>Disparar em Massa</strong>
                 </p>
               </div>
               {repescagemSlot && (
@@ -2643,6 +2807,47 @@ function OwnerDashboardShell({
               onChange={(e) => setPromoTemplate(e.target.value)}
               className="w-full p-3.5 rounded-2xl bg-zinc-950 border border-zinc-800 text-xs text-zinc-200 focus:border-amber-500 focus:outline-none"
             />
+
+            <div className="mt-4 pt-4 border-t border-zinc-800/80 flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-2.5">
+                <button
+                  type="button"
+                  onClick={toggleSelectAllClients}
+                  className="px-3.5 py-2 rounded-xl bg-zinc-950 border border-zinc-800 text-xs font-bold text-zinc-200 hover:border-amber-500/50 transition"
+                >
+                  {allVisibleClientsSelected
+                    ? 'Desmarcar Todos'
+                    : `Selecionar Todos (${filteredClients.length})`}
+                </button>
+                <span className="text-xs text-zinc-400">
+                  <strong className="text-amber-400">{selectedClientIds.length}</strong> selecionado(s)
+                </span>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                {tenant?.whatsapp_webhook_url && (
+                  <button
+                    type="button"
+                    disabled={selectedClientIds.length === 0 || bulkWebhookSending}
+                    onClick={handleBulkPromoWebhook}
+                    className="px-4 py-2 rounded-xl bg-amber-500 text-zinc-950 text-xs font-black hover:bg-amber-400 disabled:opacity-40 transition inline-flex items-center gap-1.5"
+                  >
+                    <Webhook className="w-3.5 h-3.5" />
+                    {bulkWebhookSending
+                      ? 'Disparando via Webhook...'
+                      : `Disparar Automático via Webhook (${selectedClientIds.length})`}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  disabled={selectedClientIds.length === 0}
+                  onClick={handleStartBulkQueue}
+                  className="px-4 py-2 rounded-xl bg-emerald-500 text-zinc-950 text-xs font-black hover:bg-emerald-400 disabled:opacity-40 transition inline-flex items-center gap-1.5 shadow-lg shadow-emerald-500/15"
+                >
+                  <Send className="w-3.5 h-3.5" /> Disparar em Massa ({selectedClientIds.length})
+                </button>
+              </div>
+            </div>
           </div>
 
           <div className="bg-zinc-900/80 backdrop-blur border border-zinc-800 rounded-3xl p-6">
@@ -2702,6 +2907,15 @@ function OwnerDashboardShell({
                 <table className="w-full text-left text-xs">
                   <thead className="bg-zinc-950 border-b border-zinc-800 text-zinc-400 uppercase tracking-wider text-[11px]">
                     <tr>
+                      <th className="py-3.5 px-4 w-10">
+                        <input
+                          type="checkbox"
+                          checked={allVisibleClientsSelected}
+                          onChange={toggleSelectAllClients}
+                          className="accent-amber-500 w-4 h-4 rounded cursor-pointer"
+                          title="Selecionar todos"
+                        />
+                      </th>
                       <th className="py-3.5 px-4">Cliente</th>
                       <th className="py-3.5 px-4">WhatsApp</th>
                       <th className="py-3.5 px-4">Histórico</th>
@@ -2710,37 +2924,51 @@ function OwnerDashboardShell({
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-zinc-800/80 bg-zinc-950/60">
-                    {filteredClients.map((c) => (
-                      <tr key={c.id} className="hover:bg-zinc-900/50">
-                        <td className="py-3.5 px-4 font-bold text-white text-sm">{c.name}</td>
-                        <td className="py-3.5 px-4 text-zinc-300 font-medium">{c.phone}</td>
-                        <td className="py-3.5 px-4 space-x-1.5">
-                          <span className="px-2.5 py-1 rounded-lg bg-amber-500/15 text-amber-400 font-bold">
-                            {c.total_visits} {c.total_visits === 1 ? 'visita' : 'visitas'}
-                          </span>
-                          {(c.no_show_count || 0) > 0 && (
-                            <span className="px-2 py-1 rounded-lg bg-rose-500/15 text-rose-400 font-bold">
-                              {c.no_show_count} falta(s)
+                    {filteredClients.map((c) => {
+                      const isSelected = selectedClientIds.includes(c.id);
+                      return (
+                        <tr
+                          key={c.id}
+                          className={`hover:bg-zinc-900/50 transition ${isSelected ? 'bg-amber-500/5' : ''}`}
+                        >
+                          <td className="py-3.5 px-4">
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => toggleSelectClient(c.id)}
+                              className="accent-amber-500 w-4 h-4 rounded cursor-pointer"
+                            />
+                          </td>
+                          <td className="py-3.5 px-4 font-bold text-white text-sm">{c.name}</td>
+                          <td className="py-3.5 px-4 text-zinc-300 font-medium">{c.phone}</td>
+                          <td className="py-3.5 px-4 space-x-1.5">
+                            <span className="px-2.5 py-1 rounded-lg bg-amber-500/15 text-amber-400 font-bold">
+                              {c.total_visits} {c.total_visits === 1 ? 'visita' : 'visitas'}
                             </span>
-                          )}
-                        </td>
-                        <td className="py-3.5 px-4 text-zinc-400">{c.last_visit || '—'}</td>
-                        <td className="py-3.5 px-4 text-right space-x-2">
-                          <button
-                            onClick={() => handleSendPromoWhatsApp(c)}
-                            className="px-3.5 py-2 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-bold inline-flex items-center gap-1.5 hover:bg-emerald-500/30 transition"
-                          >
-                            <MessageCircle className="w-3.5 h-3.5" /> Enviar Mensagem
-                          </button>
-                          <button
-                            onClick={() => handleDeleteClient(c.id)}
-                            className="p-2 rounded-xl bg-zinc-900 text-rose-400 hover:bg-rose-500/20 transition"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
+                            {(c.no_show_count || 0) > 0 && (
+                              <span className="px-2 py-1 rounded-lg bg-rose-500/15 text-rose-400 font-bold">
+                                {c.no_show_count} falta(s)
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-3.5 px-4 text-zinc-400">{c.last_visit || '—'}</td>
+                          <td className="py-3.5 px-4 text-right space-x-2">
+                            <button
+                              onClick={() => handleSendPromoWhatsApp(c)}
+                              className="px-3.5 py-2 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-bold inline-flex items-center gap-1.5 hover:bg-emerald-500/30 transition"
+                            >
+                              <MessageCircle className="w-3.5 h-3.5" /> Enviar Mensagem
+                            </button>
+                            <button
+                              onClick={() => handleDeleteClient(c.id)}
+                              className="p-2 rounded-xl bg-zinc-900 text-rose-400 hover:bg-rose-500/20 transition"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -3176,6 +3404,219 @@ function OwnerDashboardShell({
                 ))}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL EDITAR / REMARCAR AGENDAMENTO (DONO & SUPERADMIN) */}
+      {editingApt && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm overflow-y-auto flex items-center justify-center p-4">
+          <div className="w-full max-w-lg bg-zinc-900 border border-zinc-800 rounded-3xl p-6 shadow-2xl my-8">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="font-black text-base text-white flex items-center gap-2">
+                  <CalendarClock className="w-4 h-4 text-amber-400" /> Editar / Remarcar Horário
+                </h3>
+                <p className="text-xs text-zinc-400 mt-0.5">
+                  Cliente: <strong className="text-zinc-200">{editingApt.client_name}</strong> ({editingApt.client_phone})
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditingApt(null)}
+                className="p-1.5 text-zinc-400 hover:text-white"
+              >
+                <XCircle className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveAppointmentEdit} className="space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[11px] font-bold uppercase text-zinc-400 mb-1">Data</label>
+                  <input
+                    type="date"
+                    required
+                    value={editDate}
+                    onChange={(e) => setEditDate(e.target.value)}
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-xs font-bold text-white focus:border-amber-500 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold uppercase text-zinc-400 mb-1">
+                    Horário (mesmo dia ou encaixe)
+                  </label>
+                  <input
+                    type="time"
+                    required
+                    value={editTime}
+                    onChange={(e) => setEditTime(e.target.value)}
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-xs font-bold text-white focus:border-amber-500 focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold uppercase text-zinc-400 mb-1.5">
+                  Horários rápidos para {editDate} (ocupados ficam riscados)
+                </label>
+                <div className="grid grid-cols-3 sm:grid-cols-5 gap-1.5">
+                  {TIME_SLOTS.map((slot) => {
+                    const isTaken = bookedTimesForEdit.includes(slot);
+                    const isSelected = editTime === slot;
+                    return (
+                      <button
+                        key={slot}
+                        type="button"
+                        disabled={isTaken}
+                        onClick={() => setEditTime(slot)}
+                        className={`py-2 rounded-xl text-xs font-bold border transition ${
+                          isSelected
+                            ? 'bg-amber-500 text-zinc-950 border-amber-400 font-black'
+                            : isTaken
+                            ? 'bg-zinc-950/40 text-zinc-600 border-zinc-900 line-through cursor-not-allowed'
+                            : 'bg-zinc-950 text-zinc-200 border-zinc-800 hover:border-amber-500/50'
+                        }`}
+                      >
+                        {slot}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[11px] font-bold uppercase text-zinc-400 mb-1">Serviço</label>
+                  <select
+                    value={editServiceId}
+                    onChange={(e) => setEditServiceId(e.target.value)}
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-xs text-white focus:border-amber-500 focus:outline-none"
+                  >
+                    {services.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.name} — R$ {Number(s.price).toFixed(2)}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold uppercase text-zinc-400 mb-1">Barbeiro</label>
+                  <select
+                    value={editBarberId}
+                    onChange={(e) => setEditBarberId(e.target.value)}
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-xs text-white focus:border-amber-500 focus:outline-none"
+                  >
+                    <option value="">Qualquer profissional</option>
+                    {barbers.map((b) => (
+                      <option key={b.id} value={b.id}>
+                        {b.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center justify-between gap-2 pt-3 border-t border-zinc-800">
+                <button
+                  type="button"
+                  onClick={() => handleNotifyRescheduleWhatsApp(editingApt, editDate, editTime)}
+                  className="px-3.5 py-2.5 rounded-xl bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 text-xs font-bold hover:bg-emerald-500/25 inline-flex items-center gap-1.5 transition"
+                >
+                  <MessageCircle className="w-3.5 h-3.5" /> Avisar Novo Horário
+                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setEditingApt(null)}
+                    className="px-4 py-2.5 rounded-xl bg-zinc-800 text-zinc-300 text-xs font-bold hover:bg-zinc-700 transition"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={savingEdit}
+                    className="px-4 py-2.5 rounded-xl bg-amber-500 text-zinc-950 text-xs font-black hover:bg-amber-400 disabled:opacity-50 transition"
+                  >
+                    {savingEdit ? 'Salvando...' : 'Salvar Novo Horário'}
+                  </button>
+                </div>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL FILA DE DISPARO EM MASSA NO WHATSAPP */}
+      {bulkQueue.length > 0 && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm overflow-y-auto flex items-center justify-center p-4">
+          <div className="w-full max-w-xl bg-zinc-900 border border-zinc-800 rounded-3xl p-6 shadow-2xl my-8 max-h-[85vh] flex flex-col">
+            <div className="flex items-center justify-between gap-2 mb-3">
+              <div>
+                <h3 className="font-black text-base text-white flex items-center gap-2">
+                  <Megaphone className="w-4 h-4 text-amber-400" /> Fila de Disparo em Massa ({bulkSentIds.length}/{bulkQueue.length})
+                </h3>
+                <p className="text-xs text-zinc-400 mt-0.5">
+                  Clique em <strong>Enviar para o Próximo</strong> ou envie cliente por cliente com o texto já personalizado.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setBulkQueue([])}
+                className="p-1.5 text-zinc-400 hover:text-white"
+              >
+                <XCircle className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-2 p-3 rounded-2xl bg-zinc-950 border border-zinc-800">
+              <div className="text-xs text-zinc-300">
+                Progresso:{' '}
+                <strong className="text-emerald-400">{bulkSentIds.length}</strong> enviado(s) de{' '}
+                <strong className="text-white">{bulkQueue.length}</strong>
+              </div>
+              <button
+                type="button"
+                onClick={handleSendNextInQueue}
+                disabled={bulkSentIds.length >= bulkQueue.length}
+                className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 disabled:opacity-40 text-zinc-950 text-xs font-black inline-flex items-center gap-1.5 transition"
+              >
+                <Send className="w-3.5 h-3.5" />
+                {bulkSentIds.length >= bulkQueue.length ? 'Todos Enviados ✓' : 'Enviar para o Próximo'}
+              </button>
+            </div>
+
+            <div className="overflow-y-auto space-y-2 pr-1 flex-1">
+              {bulkQueue.map((client) => {
+                const isSent = bulkSentIds.includes(client.id);
+                return (
+                  <div
+                    key={client.id}
+                    className={`flex items-center justify-between gap-3 p-3 rounded-2xl border transition ${
+                      isSent
+                        ? 'bg-emerald-500/10 border-emerald-500/30'
+                        : 'bg-zinc-950 border-zinc-800'
+                    }`}
+                  >
+                    <div>
+                      <p className="text-sm font-bold text-white">{client.name}</p>
+                      <p className="text-xs text-zinc-400">{client.phone}</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleSendBulkQueueItem(client)}
+                      className={`px-3.5 py-2 rounded-xl text-xs font-bold inline-flex items-center gap-1.5 transition ${
+                        isSent
+                          ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                          : 'bg-emerald-500 text-zinc-950 hover:bg-emerald-400'
+                      }`}
+                    >
+                      <MessageCircle className="w-3.5 h-3.5" /> {isSent ? 'Reenviar ✓' : 'Enviar'}
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         </div>
       )}
