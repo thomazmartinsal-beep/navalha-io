@@ -2718,6 +2718,92 @@ function OwnerDashboardShell({
   const productsRevenue = monthSales.reduce((acc, s) => acc + Number(s.total_amount || 0), 0);
   const grossRevenue = servicesRevenue + productsRevenue;
 
+  // Detalhamento do faturamento de atendimentos do mês por forma de pagamento
+  const normalizePaymentMethod = (method) => {
+    const m = String(method || '').toLowerCase().trim();
+    if (m.includes('pix')) return 'pix';
+    if (
+      m.includes('card') ||
+      m.includes('cartao') ||
+      m.includes('cartão') ||
+      m.includes('credit') ||
+      m.includes('credito') ||
+      m.includes('crédito')
+    ) {
+      return 'credit_card';
+    }
+    if (
+      m.includes('cash') ||
+      m.includes('dinheiro') ||
+      m.includes('especie') ||
+      m.includes('espécie')
+    ) {
+      return 'cash';
+    }
+    return 'other';
+  };
+
+  const paymentBreakdown = monthCompletedApts.reduce(
+    (acc, apt) => {
+      const key = normalizePaymentMethod(apt.payment_method);
+      const val = Number(apt.price_snapshot || 0);
+      acc[key].total += val;
+      acc[key].count += 1;
+      return acc;
+    },
+    {
+      pix: { total: 0, count: 0 },
+      credit_card: { total: 0, count: 0 },
+      cash: { total: 0, count: 0 },
+      other: { total: 0, count: 0 },
+    }
+  );
+
+  const getPaymentPercent = (value) =>
+    servicesRevenue > 0 ? Math.round((value / servicesRevenue) * 100) : 0;
+
+  const paymentCards = [
+    {
+      key: 'pix',
+      label: 'Pix',
+      icon: QrCode,
+      total: paymentBreakdown.pix.total,
+      count: paymentBreakdown.pix.count,
+      percent: getPaymentPercent(paymentBreakdown.pix.total),
+      border: 'border-emerald-500/30',
+      iconBg: 'bg-emerald-500/15 text-emerald-400',
+      text: 'text-emerald-400',
+      bar: 'bg-emerald-500',
+      badge: 'bg-emerald-500/15 text-emerald-300',
+    },
+    {
+      key: 'credit_card',
+      label: 'Cartão de Crédito',
+      icon: CreditCard,
+      total: paymentBreakdown.credit_card.total,
+      count: paymentBreakdown.credit_card.count,
+      percent: getPaymentPercent(paymentBreakdown.credit_card.total),
+      border: 'border-sky-500/30',
+      iconBg: 'bg-sky-500/15 text-sky-400',
+      text: 'text-sky-400',
+      bar: 'bg-sky-500',
+      badge: 'bg-sky-500/15 text-sky-300',
+    },
+    {
+      key: 'cash',
+      label: 'Dinheiro',
+      icon: Banknote,
+      total: paymentBreakdown.cash.total,
+      count: paymentBreakdown.cash.count,
+      percent: getPaymentPercent(paymentBreakdown.cash.total),
+      border: 'border-amber-500/30',
+      iconBg: 'bg-amber-500/15 text-amber-400',
+      text: 'text-amber-400',
+      bar: 'bg-amber-500',
+      badge: 'bg-amber-500/15 text-amber-300',
+    },
+  ];
+
   const barberCommissions = barbers.map((b) => {
     const bApts = monthCompletedApts.filter((a) => a.barber_id === b.id);
     const totalGenerated = bApts.reduce((acc, a) => acc + Number(a.price_snapshot || 0), 0);
@@ -3947,6 +4033,80 @@ function OwnerDashboardShell({
             <p className="text-[11px] text-zinc-500 mt-4 pt-3 border-t border-zinc-800/80">
               Agenda futura prevista no mês: <strong className="text-zinc-300">+ R$ {projectedRevenue.toFixed(2)}</strong> ({monthScheduledApts.length} horários aguardando conclusão)
             </p>
+          </div>
+
+          {/* Faturamento por Forma de Pagamento */}
+          <div className="bg-zinc-900/80 backdrop-blur border border-zinc-800 rounded-3xl p-6 space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h3 className="font-bold text-sm text-white">
+                  Faturamento por Forma de Pagamento ({selectedMonth})
+                </h3>
+                <p className="text-xs text-zinc-400 mt-0.5">
+                  Baseado nos {monthCompletedApts.length} atendimento(s) concluído(s) no mês
+                </p>
+              </div>
+              <span className="px-3 py-1.5 rounded-xl bg-zinc-950 border border-zinc-800 text-xs font-bold text-zinc-200">
+                Total em atendimentos: <strong className="text-amber-400">R$ {servicesRevenue.toFixed(2)}</strong>
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              {paymentCards.map((item) => {
+                const Icon = item.icon;
+                return (
+                  <div
+                    key={item.key}
+                    className={`p-4 rounded-2xl bg-zinc-950/80 border ${item.border} space-y-3`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <div className={`w-8 h-8 rounded-xl flex items-center justify-center ${item.iconBg}`}>
+                          <Icon className="w-4 h-4" />
+                        </div>
+                        <span className={`text-xs font-bold ${item.text}`}>{item.label}</span>
+                      </div>
+                      <span className={`px-2 py-0.5 rounded-lg text-[11px] font-bold ${item.badge}`}>
+                        {item.percent}%
+                      </span>
+                    </div>
+
+                    <p className="text-2xl font-black text-white">
+                      R$ {item.total.toFixed(2)}
+                    </p>
+
+                    <div className="w-full h-1.5 rounded-full bg-zinc-900 overflow-hidden">
+                      <div
+                        className={`h-full rounded-full ${item.bar} transition-all duration-500`}
+                        style={{ width: `${item.percent}%` }}
+                      />
+                    </div>
+
+                    <p className="text-[11px] text-zinc-500">
+                      {item.count} {item.count === 1 ? 'atendimento concluído' : 'atendimentos concluídos'}
+                    </p>
+                  </div>
+                );
+              })}
+            </div>
+
+            {(paymentBreakdown.other.count > 0 || productsRevenue > 0) && (
+              <div className="flex flex-wrap items-center justify-between gap-2 pt-3 border-t border-zinc-800/80 text-[11px] text-zinc-400">
+                {paymentBreakdown.other.count > 0 && (
+                  <span>
+                    Outros / não informado:{' '}
+                    <strong className="text-zinc-200">R$ {paymentBreakdown.other.total.toFixed(2)}</strong> (
+                    {paymentBreakdown.other.count} atend.)
+                  </span>
+                )}
+                {productsRevenue > 0 && (
+                  <span>
+                    Vendas avulsas de estoque (sem forma registrada):{' '}
+                    <strong className="text-zinc-200">R$ {productsRevenue.toFixed(2)}</strong>
+                  </span>
+                )}
+              </div>
+            )}
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
