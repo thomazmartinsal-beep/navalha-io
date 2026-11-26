@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import {
   Scissors, Calendar, Users, Shield, Crown, CheckCircle2,
-  XCircle, Plus, Lock, Unlock, LogOut, ArrowLeft,
+  XCircle, Plus, Minus, Lock, Unlock, LogOut, ArrowLeft,
   Store, Sparkles, Eye, Loader2, Package,
   Trash2, Edit3, Check, TrendingUp, AlertTriangle, ShoppingBag,
   Link2, ExternalLink, Copy, Clock, Phone,
   BarChart3, SlidersHorizontal, ChevronRight, MessageCircle, Megaphone, Search, Webhook,
-  Smartphone, Play, Pause, Send, Upload, RefreshCw, UserX, CalendarClock
+  Smartphone, Play, Pause, Send, Upload, RefreshCw, UserX, CalendarClock,
+  CreditCard, Banknote, QrCode
 } from 'lucide-react';
 import { supabase } from './supabaseClient';
 import AgendaCalendarReport from './AgendaCalendarReport';
@@ -51,6 +52,133 @@ const TIME_SLOTS = [
   '13:30', '14:10', '14:50', '15:30', '16:10',
   '16:50', '17:30', '18:10', '18:50', '19:30'
 ];
+
+/* ============================================================================
+   COMPONENTES REUTILIZÁVEIS: FORMA DE PAGAMENTO E PRODUTOS EXTRAS
+   ============================================================================ */
+const PAYMENT_METHODS = [
+  { id: 'pix', label: 'Pix', icon: QrCode, desc: 'Transferência instantânea' },
+  { id: 'credit_card', label: 'Cartão de Crédito', icon: CreditCard, desc: 'Crédito na maquininha' },
+  { id: 'cash', label: 'Dinheiro', icon: Banknote, desc: 'Pagamento em espécie' },
+];
+
+const getPaymentMethodInfo = (methodId) =>
+  PAYMENT_METHODS.find((m) => m.id === methodId) || PAYMENT_METHODS[0];
+
+function PaymentMethodSelector({ value, onChange }) {
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+      {PAYMENT_METHODS.map((pm) => {
+        const Icon = pm.icon;
+        const selected = value === pm.id;
+        return (
+          <button
+            key={pm.id}
+            type="button"
+            onClick={() => onChange(pm.id)}
+            className={`p-3.5 rounded-2xl border text-left transition flex items-center gap-3 ${
+              selected
+                ? 'bg-amber-500/15 border-amber-500 text-white shadow-lg shadow-amber-500/10'
+                : 'bg-zinc-950/90 border-zinc-800 text-zinc-300 hover:border-zinc-700'
+            }`}
+          >
+            <div
+              className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
+                selected
+                  ? 'bg-amber-500 text-zinc-950'
+                  : 'bg-zinc-900 text-amber-400 border border-zinc-800'
+              }`}
+            >
+              <Icon className="w-5 h-5" />
+            </div>
+            <div className="min-w-0">
+              <p className="font-bold text-xs text-white truncate">{pm.label}</p>
+              <p className="text-[11px] text-zinc-400 leading-tight mt-0.5 truncate">{pm.desc}</p>
+            </div>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function PaymentMethodBadge({ method }) {
+  const found = getPaymentMethodInfo(method);
+  const Icon = found.icon;
+  return (
+    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-zinc-900 border border-zinc-800 text-xs font-bold text-zinc-200">
+      <Icon className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+      <span>{found.label}</span>
+    </span>
+  );
+}
+
+function ProductSelectorBlock({ products = [], selectedProducts = {}, onChangeQty }) {
+  const availableProducts = products.filter(
+    (p) => p.active !== false && Number(p.stock_qty) > 0
+  );
+
+  if (availableProducts.length === 0) {
+    return (
+      <p className="text-xs text-zinc-500 bg-zinc-950/70 border border-zinc-800/80 rounded-2xl p-3.5">
+        Nenhum produto extra disponível em estoque no momento.
+      </p>
+    );
+  }
+
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+      {availableProducts.map((prod) => {
+        const qty = Number(selectedProducts[prod.id] || 0);
+        const isSelected = qty > 0;
+        const maxStock = Number(prod.stock_qty || 0);
+
+        return (
+          <div
+            key={prod.id}
+            className={`p-3.5 rounded-2xl border transition flex items-center justify-between gap-3 ${
+              isSelected
+                ? 'bg-amber-500/10 border-amber-500/60'
+                : 'bg-zinc-950/90 border-zinc-800/90'
+            }`}
+          >
+            <div className="min-w-0">
+              <p className="font-bold text-xs text-white truncate">{prod.name}</p>
+              <div className="flex items-center gap-2 mt-1">
+                <span className="text-xs font-black text-amber-400">
+                  R$ {Number(prod.sale_price).toFixed(2)}
+                </span>
+                <span className="text-[10px] text-zinc-500">({maxStock} disp.)</span>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-1.5 bg-zinc-900 border border-zinc-800 rounded-xl px-2 py-1 shrink-0">
+              <button
+                type="button"
+                disabled={qty <= 0}
+                onClick={() => onChangeQty(prod.id, Math.max(0, qty - 1))}
+                className="p-1 text-zinc-400 hover:text-white disabled:opacity-30 transition"
+              >
+                <Minus className="w-3.5 h-3.5" />
+              </button>
+              <span className="text-xs font-black text-white min-w-[18px] text-center">
+                {qty}
+              </span>
+              <button
+                type="button"
+                disabled={qty >= maxStock}
+                onClick={() => onChangeQty(prod.id, Math.min(maxStock, qty + 1))}
+                className="p-1 text-zinc-400 hover:text-amber-400 disabled:opacity-30 transition"
+              >
+                <Plus className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 const formatWhatsAppNumber = (rawPhone) => {
   const digits = (rawPhone || '').replace(/\D/g, '');
@@ -244,6 +372,7 @@ export default function App() {
             shop={shop}
             services={shop ? services.filter((s) => s.tenant_id === shop.id) : []}
             barbers={shop ? barbers.filter((b) => b.tenant_id === shop.id) : []}
+            products={shop ? products.filter((p) => p.tenant_id === shop.id) : []}
             allShopAppointments={shop ? appointments.filter((a) => a.tenant_id === shop.id) : []}
             onAppointmentChanged={() => loadPlatformData(authUser)}
             notify={notify}
@@ -397,6 +526,7 @@ function DedicatedShopBookingPage({
   shop,
   services,
   barbers,
+  products = [],
   allShopAppointments,
   onAppointmentChanged,
   notify,
@@ -409,6 +539,8 @@ function DedicatedShopBookingPage({
   const [selectedBarberId, setSelectedBarberId] = useState('');
   const [date, setDate] = useState(todayStr);
   const [time, setTime] = useState('');
+  const [selectedProducts, setSelectedProducts] = useState({});
+  const [paymentMethod, setPaymentMethod] = useState('pix');
   const [clientName, setClientName] = useState('');
   const [clientPhone, setClientPhone] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -445,6 +577,33 @@ function DedicatedShopBookingPage({
   const selectedService = services.find((s) => s.id === selectedServiceId);
   const selectedBarber = barbers.find((b) => b.id === selectedBarberId);
 
+  const handleProductQtyChange = (productId, nextQty) => {
+    setSelectedProducts((prev) => {
+      const updated = { ...prev };
+      if (nextQty <= 0) delete updated[productId];
+      else updated[productId] = nextQty;
+      return updated;
+    });
+  };
+
+  const chosenProductsList = Object.entries(selectedProducts)
+    .map(([prodId, qty]) => {
+      const prod = products.find((p) => p.id === prodId);
+      if (!prod || qty <= 0) return null;
+      return {
+        product_id: prod.id,
+        name: prod.name,
+        quantity: qty,
+        unit_price: Number(prod.sale_price || 0),
+        subtotal: Number(prod.sale_price || 0) * qty,
+      };
+    })
+    .filter(Boolean);
+
+  const servicesSubtotal = Number(selectedService?.price || 0);
+  const productsSubtotal = chosenProductsList.reduce((acc, item) => acc + item.subtotal, 0);
+  const finalTotal = servicesSubtotal + productsSubtotal;
+
   const bookedTimesOnDate = activeAppointments
     .filter((a) => a.date === date && (!selectedBarberId || a.barber_id === selectedBarberId))
     .map((a) => a.time?.slice(0, 5));
@@ -457,6 +616,7 @@ function DedicatedShopBookingPage({
     const cleanName = clientName.trim();
     const cleanPhone = clientPhone.trim();
     const phoneDigits = cleanPhone.replace(/\D/g, '');
+    const paymentLabel = getPaymentMethodInfo(paymentMethod).label;
 
     const { error } = await supabase.from('appointments').insert({
       tenant_id: shop.id,
@@ -466,7 +626,9 @@ function DedicatedShopBookingPage({
       client_phone: cleanPhone,
       date,
       time,
-      price_snapshot: selectedService?.price || 0,
+      price_snapshot: finalTotal,
+      payment_method: paymentMethod,
+      selected_products: chosenProductsList,
       status: 'scheduled',
     });
 
@@ -474,6 +636,27 @@ function DedicatedShopBookingPage({
       setSubmitting(false);
       notify('Erro ao agendar: ' + error.message);
       return;
+    }
+
+    if (chosenProductsList.length > 0) {
+      for (const item of chosenProductsList) {
+        const originalProd = products.find((p) => p.id === item.product_id);
+        if (originalProd) {
+          await supabase
+            .from('products')
+            .update({ stock_qty: Math.max(0, Number(originalProd.stock_qty) - item.quantity) })
+            .eq('id', item.product_id);
+        }
+        await supabase.from('product_sales').insert({
+          tenant_id: shop.id,
+          product_id: item.product_id,
+          product_name: item.name,
+          quantity: item.quantity,
+          unit_price: item.unit_price,
+          total_amount: item.subtotal,
+          sold_at: date,
+        });
+      }
     }
 
     if (phoneDigits) {
@@ -507,6 +690,10 @@ function DedicatedShopBookingPage({
     }
 
     if (shop.whatsapp_webhook_url) {
+      const productsSummaryText =
+        chosenProductsList.length > 0
+          ? `\n🛍️ *Produtos:* ${chosenProductsList.map((p) => `${p.quantity}x ${p.name}`).join(', ')}`
+          : '';
       try {
         fetch(shop.whatsapp_webhook_url, {
           method: 'POST',
@@ -520,8 +707,10 @@ function DedicatedShopBookingPage({
             barber_name: selectedBarber?.name || 'Equipe',
             date,
             time,
-            price: selectedService?.price,
-            message: `Olá ${cleanName}! Seu agendamento na *${shop.name}* está confirmado:\n✂️ *Serviço:* ${selectedService?.name}\n💈 *Profissional:* ${selectedBarber?.name || 'Primeiro disponível'}\n📅 *Data:* ${date} às *${time}*\n💰 *Valor:* R$ ${Number(selectedService?.price || 0).toFixed(2)}`,
+            payment_method: paymentMethod,
+            products: chosenProductsList,
+            price: finalTotal,
+            message: `Olá ${cleanName}! Seu agendamento na *${shop.name}* está confirmado:\n✂️ *Serviço:* ${selectedService?.name}${productsSummaryText}\n💈 *Profissional:* ${selectedBarber?.name || 'Primeiro disponível'}\n📅 *Data:* ${date} às *${time}*\n💳 *Pagamento:* ${paymentLabel}\n💰 *Total:* R$ ${finalTotal.toFixed(2)}`,
           }),
         }).catch(() => {});
       } catch (_) {}
@@ -532,7 +721,11 @@ function DedicatedShopBookingPage({
     setBookingConfirmed({
       serviceName: selectedService?.name,
       barberName: selectedBarber?.name || 'Primeiro profissional disponível',
-      price: selectedService?.price,
+      servicesSubtotal,
+      productsSubtotal,
+      products: chosenProductsList,
+      paymentMethod,
+      price: finalTotal,
       date,
       time,
       clientName: cleanName,
@@ -541,12 +734,19 @@ function DedicatedShopBookingPage({
     setClientName('');
     setClientPhone('');
     setTime('');
+    setSelectedProducts({});
+    setPaymentMethod('pix');
     onAppointmentChanged();
   };
 
   const handleSendReceiptToShopWhatsApp = () => {
     if (!bookingConfirmed || !shop.owner_phone) return;
-    const msg = `Olá *${shop.name}*! Acabei de agendar pelo site:\n\n👤 *Cliente:* ${bookingConfirmed.clientName}\n✂️ *Serviço:* ${bookingConfirmed.serviceName}\n💈 *Profissional:* ${bookingConfirmed.barberName}\n📅 *Data:* ${bookingConfirmed.date} às *${bookingConfirmed.time}*\n💰 *Valor:* R$ ${Number(bookingConfirmed.price).toFixed(2)}`;
+    const paymentLabel = getPaymentMethodInfo(bookingConfirmed.paymentMethod).label;
+    const productsLine =
+      bookingConfirmed.products?.length > 0
+        ? `\n🛍️ *Produtos:* ${bookingConfirmed.products.map((p) => `${p.quantity}x ${p.name}`).join(', ')}`
+        : '';
+    const msg = `Olá *${shop.name}*! Acabei de agendar pelo site:\n\n👤 *Cliente:* ${bookingConfirmed.clientName}\n✂️ *Serviço:* ${bookingConfirmed.serviceName}${productsLine}\n💈 *Profissional:* ${bookingConfirmed.barberName}\n📅 *Data:* ${bookingConfirmed.date} às *${bookingConfirmed.time}*\n💳 *Pagamento:* ${paymentLabel}\n💰 *Total:* R$ ${Number(bookingConfirmed.price).toFixed(2)}`;
     openWhatsAppMessage(shop.owner_phone, msg);
   };
 
@@ -709,8 +909,24 @@ function DedicatedShopBookingPage({
               <div className="bg-zinc-950 border border-zinc-800 rounded-2xl p-5 my-6 text-left text-xs space-y-3">
                 <div className="flex justify-between items-center">
                   <span className="text-zinc-400">Serviço escolhido</span>
-                  <span className="font-bold text-white text-sm">{bookingConfirmed.serviceName}</span>
+                  <span className="font-bold text-white text-sm">
+                    {bookingConfirmed.serviceName} (R$ {Number(bookingConfirmed.servicesSubtotal).toFixed(2)})
+                  </span>
                 </div>
+
+                {bookingConfirmed.products?.length > 0 && (
+                  <div className="flex justify-between items-start gap-2">
+                    <span className="text-zinc-400">Produtos extras</span>
+                    <div className="text-right font-bold text-zinc-200">
+                      {bookingConfirmed.products.map((p) => (
+                        <div key={p.product_id}>
+                          {p.quantity}x {p.name} (R$ {Number(p.subtotal).toFixed(2)})
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 <div className="flex justify-between items-center">
                   <span className="text-zinc-400">Profissional</span>
                   <span className="font-bold text-white">{bookingConfirmed.barberName}</span>
@@ -719,8 +935,12 @@ function DedicatedShopBookingPage({
                   <span className="text-zinc-400">Data e Horário</span>
                   <span className="font-bold text-amber-400">{bookingConfirmed.date} às {bookingConfirmed.time}</span>
                 </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-zinc-400">Forma de pagamento</span>
+                  <PaymentMethodBadge method={bookingConfirmed.paymentMethod} />
+                </div>
                 <div className="pt-2.5 border-t border-zinc-800/80 flex justify-between items-center">
-                  <span className="text-zinc-400">Valor no local</span>
+                  <span className="text-zinc-400">Total no local</span>
                   <span className="font-black text-emerald-400 text-base">R$ {Number(bookingConfirmed.price).toFixed(2)}</span>
                 </div>
               </div>
@@ -750,6 +970,7 @@ function DedicatedShopBookingPage({
             </div>
           ) : (
             <form onSubmit={handleBook} className="space-y-6">
+              {/* PASSO 1: SERVIÇO */}
               <div className="bg-zinc-900/80 backdrop-blur border border-zinc-800 rounded-3xl p-5 sm:p-6">
                 <div className="flex items-center gap-2.5 mb-4">
                   <span className="w-6 h-6 rounded-lg bg-amber-500 text-zinc-950 font-black text-xs flex items-center justify-center">
@@ -796,6 +1017,7 @@ function DedicatedShopBookingPage({
                 )}
               </div>
 
+              {/* PASSO 2: PROFISSIONAL */}
               <div className="bg-zinc-900/80 backdrop-blur border border-zinc-800 rounded-3xl p-5 sm:p-6">
                 <div className="flex items-center gap-2.5 mb-4">
                   <span className="w-6 h-6 rounded-lg bg-amber-500 text-zinc-950 font-black text-xs flex items-center justify-center">
@@ -850,6 +1072,7 @@ function DedicatedShopBookingPage({
                 </div>
               </div>
 
+              {/* PASSO 3: DATA E HORÁRIO */}
               <div className="bg-zinc-900/80 backdrop-blur border border-zinc-800 rounded-3xl p-5 sm:p-6">
                 <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
                   <div className="flex items-center gap-2.5">
@@ -893,10 +1116,50 @@ function DedicatedShopBookingPage({
                 </div>
               </div>
 
+              {/* PASSO 4: PRODUTOS EXTRAS (OPCIONAL) */}
+              <div className="bg-zinc-900/80 backdrop-blur border border-zinc-800 rounded-3xl p-5 sm:p-6">
+                <div className="flex items-center justify-between gap-2 mb-4">
+                  <div className="flex items-center gap-2.5">
+                    <span className="w-6 h-6 rounded-lg bg-amber-500 text-zinc-950 font-black text-xs flex items-center justify-center">
+                      4
+                    </span>
+                    <h2 className="font-black text-sm uppercase tracking-wider text-white">
+                      Produtos Extras <span className="text-zinc-500 font-semibold normal-case">(Opcional)</span>
+                    </h2>
+                  </div>
+                  {productsSubtotal > 0 && (
+                    <span className="text-xs font-black text-amber-400">
+                      + R$ {productsSubtotal.toFixed(2)}
+                    </span>
+                  )}
+                </div>
+
+                <ProductSelectorBlock
+                  products={products}
+                  selectedProducts={selectedProducts}
+                  onChangeQty={handleProductQtyChange}
+                />
+              </div>
+
+              {/* PASSO 5: FORMA DE PAGAMENTO */}
               <div className="bg-zinc-900/80 backdrop-blur border border-zinc-800 rounded-3xl p-5 sm:p-6">
                 <div className="flex items-center gap-2.5 mb-4">
                   <span className="w-6 h-6 rounded-lg bg-amber-500 text-zinc-950 font-black text-xs flex items-center justify-center">
-                    4
+                    5
+                  </span>
+                  <h2 className="font-black text-sm uppercase tracking-wider text-white">
+                    Forma de Pagamento
+                  </h2>
+                </div>
+
+                <PaymentMethodSelector value={paymentMethod} onChange={setPaymentMethod} />
+              </div>
+
+              {/* PASSO 6: SEUS DADOS E RESUMO FINAL */}
+              <div className="bg-zinc-900/80 backdrop-blur border border-zinc-800 rounded-3xl p-5 sm:p-6">
+                <div className="flex items-center gap-2.5 mb-4">
+                  <span className="w-6 h-6 rounded-lg bg-amber-500 text-zinc-950 font-black text-xs flex items-center justify-center">
+                    6
                   </span>
                   <h2 className="font-black text-sm uppercase tracking-wider text-white">Seus Dados (WhatsApp)</h2>
                 </div>
@@ -927,16 +1190,32 @@ function DedicatedShopBookingPage({
                 </div>
 
                 {selectedService && (
-                  <div className="p-3.5 rounded-2xl bg-zinc-950 border border-zinc-800 mb-4 flex items-center justify-between text-xs">
-                    <div>
-                      <p className="text-zinc-400">Resumo do agendamento:</p>
-                      <p className="font-bold text-white mt-0.5">
-                        {selectedService.name} {time ? `• ${date} às ${time}` : ''}
-                      </p>
+                  <div className="p-4 rounded-2xl bg-zinc-950 border border-zinc-800 mb-4 space-y-2.5 text-xs">
+                    <div className="flex justify-between items-center">
+                      <span className="text-zinc-400">
+                        Subtotal de Serviços ({selectedService.name}{time ? ` • ${date} às ${time}` : ''})
+                      </span>
+                      <span className="font-bold text-white">R$ {servicesSubtotal.toFixed(2)}</span>
                     </div>
-                    <span className="text-base font-black text-amber-400">
-                      R$ {Number(selectedService.price).toFixed(2)}
-                    </span>
+
+                    <div className="flex justify-between items-center">
+                      <span className="text-zinc-400">
+                        Subtotal de Produtos ({chosenProductsList.reduce((acc, item) => acc + item.quantity, 0)} un.)
+                      </span>
+                      <span className="font-bold text-white">R$ {productsSubtotal.toFixed(2)}</span>
+                    </div>
+
+                    <div className="flex justify-between items-center">
+                      <span className="text-zinc-400">Forma de pagamento</span>
+                      <PaymentMethodBadge method={paymentMethod} />
+                    </div>
+
+                    <div className="pt-2.5 border-t border-zinc-800 flex justify-between items-center">
+                      <span className="font-bold text-zinc-200">Total Final</span>
+                      <span className="text-base font-black text-amber-400">
+                        R$ {finalTotal.toFixed(2)}
+                      </span>
+                    </div>
                   </div>
                 )}
 
@@ -1007,9 +1286,12 @@ function DedicatedShopBookingPage({
                     >
                       <div className="flex flex-wrap justify-between items-start gap-2">
                         <div>
-                          <span className="px-2.5 py-0.5 rounded-md bg-amber-500/15 text-amber-400 text-xs font-black">
-                            {apt.date} às {apt.time?.slice(0, 5)}
-                          </span>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="px-2.5 py-0.5 rounded-md bg-amber-500/15 text-amber-400 text-xs font-black">
+                              {apt.date} às {apt.time?.slice(0, 5)}
+                            </span>
+                            {apt.payment_method && <PaymentMethodBadge method={apt.payment_method} />}
+                          </div>
                           <h3 className="font-bold text-sm text-white mt-2">
                             {srv?.name || 'Atendimento'} • R$ {Number(apt.price_snapshot).toFixed(2)}
                           </h3>
@@ -1867,7 +2149,8 @@ function SuperAdminConsole({ tenants, onRefresh, onImpersonate, onCopyLink, onLo
     </div>
   );
 }
-
+// === FIM DA PARTE 1 — COLE A PARTE 2 LOGO ABAIXO ===
+// === INÍCIO DA PARTE 2 ===
 /* ============================================================================
    4. PAINEL EXECUTIVO DO DONO DA BARBEARIA (E SUPER ADMIN)
    ============================================================================ */
@@ -1887,6 +2170,7 @@ function OwnerDashboardShell({
   notify,
 }) {
   const [activeTab, setActiveTab] = useState('agenda');
+  const [showManualBookingModal, setShowManualBookingModal] = useState(false);
 
   // Identidade Visual & Regras de Cancelamento
   const [showBrandModal, setShowBrandModal] = useState(false);
@@ -1905,6 +2189,7 @@ function OwnerDashboardShell({
   const [editTime, setEditTime] = useState('');
   const [editBarberId, setEditBarberId] = useState('');
   const [editServiceId, setEditServiceId] = useState('');
+  const [editPaymentMethod, setEditPaymentMethod] = useState('pix');
   const [savingEdit, setSavingEdit] = useState(false);
 
   // Seleção em Massa e Disparo Promocional
@@ -2073,6 +2358,7 @@ function OwnerDashboardShell({
     setEditTime((apt.time || '09:00').slice(0, 5));
     setEditBarberId(apt.barber_id || '');
     setEditServiceId(apt.service_id || '');
+    setEditPaymentMethod(apt.payment_method || 'pix');
   };
 
   const handleSaveAppointmentEdit = async (e) => {
@@ -2081,12 +2367,20 @@ function OwnerDashboardShell({
     setSavingEdit(true);
 
     const chosenService = services.find((s) => s.id === editServiceId);
+    const existingProductsTotal = Array.isArray(editingApt.selected_products)
+      ? editingApt.selected_products.reduce((acc, item) => acc + Number(item.subtotal || 0), 0)
+      : 0;
+    const updatedTotal = chosenService
+      ? Number(chosenService.price || 0) + existingProductsTotal
+      : editingApt.price_snapshot;
+
     const payload = {
       date: editDate,
       time: editTime,
       barber_id: editBarberId || null,
       service_id: editServiceId || editingApt.service_id,
-      price_snapshot: chosenService ? chosenService.price : editingApt.price_snapshot,
+      payment_method: editPaymentMethod,
+      price_snapshot: updatedTotal,
       status: 'scheduled',
       cancellation_reason: null,
     };
@@ -2207,7 +2501,8 @@ function OwnerDashboardShell({
   const handleConfirmAppointmentWhatsApp = (apt) => {
     const srv = services.find((s) => s.id === apt.service_id);
     const brb = barbers.find((b) => b.id === apt.barber_id);
-    const msg = `Olá *${apt.client_name}*! Aqui é da *${tenant.name}* 💈\n\nConfirmando seu horário:\n✂️ *Serviço:* ${srv?.name || 'Atendimento'}\n👤 *Profissional:* ${brb?.name || 'Equipe'}\n📅 *Data:* ${apt.date} às *${apt.time?.slice(0, 5)}*\n\nTe aguardamos!`;
+    const paymentLabel = apt.payment_method ? `\n💳 *Pagamento:* ${getPaymentMethodInfo(apt.payment_method).label}` : '';
+    const msg = `Olá *${apt.client_name}*! Aqui é da *${tenant.name}* 💈\n\nConfirmando seu horário:\n✂️ *Serviço:* ${srv?.name || 'Atendimento'}\n👤 *Profissional:* ${brb?.name || 'Equipe'}\n📅 *Data:* ${apt.date} às *${apt.time?.slice(0, 5)}*${paymentLabel}\n\nTe aguardamos!`;
     openWhatsAppMessage(apt.client_phone, msg);
   };
 
@@ -2727,18 +3022,26 @@ function OwnerDashboardShell({
           />
 
           <div className="bg-zinc-900/80 backdrop-blur border border-zinc-800 rounded-3xl p-6 space-y-6">
-            {/* Cabeçalho + Seletor de Mês */}
+            {/* Cabeçalho + Botão Novo Agendamento + Seletor de Mês */}
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <h2 className="font-black text-base text-white flex items-center gap-2">
                   <Calendar className="w-4 h-4 text-amber-400" /> Agendamentos da Barbearia
                 </h2>
                 <p className="text-xs text-zinc-400 mt-0.5">
-                  Dashboard visual mensal, edição de horários, conclusão de atendimentos e repescagem
+                  Dashboard visual mensal, criação manual, edição de horários, conclusão e repescagem
                 </p>
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowManualBookingModal(true)}
+                  className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-zinc-950 text-xs font-black inline-flex items-center gap-1.5 transition shadow-lg shadow-amber-500/20"
+                >
+                  <Plus className="w-4 h-4" /> Novo agendamento
+                </button>
+
                 <input
                   type="month"
                   value={safeAgendaMonth}
@@ -3058,6 +3361,7 @@ function OwnerDashboardShell({
                   const brb = barbers.find((b) => b.id === a.barber_id);
                   const phoneDigits = (a.client_phone || '').replace(/\D/g, '');
                   const clientRecord = clients.find((c) => c.phone_clean === phoneDigits);
+                  const extraProducts = Array.isArray(a.selected_products) ? a.selected_products : [];
 
                   return (
                     <div
@@ -3085,6 +3389,14 @@ function OwnerDashboardShell({
                             <span className="text-zinc-200 font-semibold">{srv?.name || 'Serviço'}</span>
                             {brb ? ` • Barbeiro: ${brb.name}` : ''}
                           </p>
+                          {extraProducts.length > 0 && (
+                            <p className="text-[11px] text-amber-400/90 mt-1 flex items-center gap-1">
+                              <ShoppingBag className="w-3 h-3 shrink-0" />
+                              <span>
+                                Produtos: {extraProducts.map((p) => `${p.quantity}x ${p.name}`).join(', ')}
+                              </span>
+                            </p>
+                          )}
                           {a.cancellation_reason && (a.status === 'cancelled' || a.status === 'no_show') && (
                             <p className="text-[11px] text-rose-400/90 mt-1">
                               Motivo: {a.cancellation_reason}
@@ -3100,6 +3412,8 @@ function OwnerDashboardShell({
                         >
                           <MessageCircle className="w-3.5 h-3.5" /> WhatsApp
                         </button>
+
+                        {a.payment_method && <PaymentMethodBadge method={a.payment_method} />}
 
                         <span className="px-3 py-1.5 rounded-xl bg-zinc-900 border border-zinc-800 text-amber-400 text-xs font-black">
                           R$ {Number(a.price_snapshot).toFixed(2)}
@@ -3821,6 +4135,24 @@ function OwnerDashboardShell({
         </div>
       )}
 
+      {/* MODAL CRIAÇÃO MANUAL DE AGENDAMENTO (DONO & SUPERADMIN) */}
+      {showManualBookingModal && (
+        <ManualBookingModal
+          tenant={tenant}
+          clients={clients}
+          services={services}
+          barbers={barbers}
+          products={products}
+          appointments={appointments}
+          onClose={() => setShowManualBookingModal(false)}
+          onCreated={() => {
+            setShowManualBookingModal(false);
+            onRefresh();
+          }}
+          notify={notify}
+        />
+      )}
+
       {/* MODAL EDITAR / REMARCAR AGENDAMENTO (DONO & SUPERADMIN) */}
       {editingApt && (
         <div className="fixed inset-0 z-[60] bg-black/80 backdrop-blur-sm overflow-y-auto flex items-center justify-center p-4">
@@ -3928,6 +4260,13 @@ function OwnerDashboardShell({
                     ))}
                   </select>
                 </div>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold uppercase text-zinc-400 mb-1.5">
+                  Forma de Pagamento
+                </label>
+                <PaymentMethodSelector value={editPaymentMethod} onChange={setEditPaymentMethod} />
               </div>
 
               <div className="flex flex-wrap items-center justify-between gap-2 pt-3 border-t border-zinc-800">
@@ -4115,6 +4454,371 @@ function OwnerDashboardShell({
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/* ============================================================================
+   5. MODAL DE CRIAÇÃO MANUAL DE AGENDAMENTO (PAINEL DO DONO)
+   ============================================================================ */
+function ManualBookingModal({
+  tenant,
+  clients,
+  services,
+  barbers,
+  products,
+  appointments,
+  onClose,
+  onCreated,
+  notify,
+}) {
+  const todayStr = new Date().toISOString().slice(0, 10);
+
+  const [selectedClientId, setSelectedClientId] = useState('');
+  const [clientName, setClientName] = useState('');
+  const [clientPhone, setClientPhone] = useState('');
+  const [serviceId, setServiceId] = useState(services[0]?.id || '');
+  const [barberId, setBarberId] = useState('');
+  const [date, setDate] = useState(todayStr);
+  const [time, setTime] = useState('');
+  const [selectedProducts, setSelectedProducts] = useState({});
+  const [paymentMethod, setPaymentMethod] = useState('pix');
+  const [saving, setSaving] = useState(false);
+
+  const handleSelectExistingClient = (id) => {
+    setSelectedClientId(id);
+    if (!id) return;
+    const found = clients.find((c) => c.id === id);
+    if (found) {
+      setClientName(found.name || '');
+      setClientPhone(found.phone || '');
+    }
+  };
+
+  const handleProductQtyChange = (productId, nextQty) => {
+    setSelectedProducts((prev) => {
+      const updated = { ...prev };
+      if (nextQty <= 0) delete updated[productId];
+      else updated[productId] = nextQty;
+      return updated;
+    });
+  };
+
+  const selectedService = services.find((s) => s.id === serviceId);
+  const chosenProductsList = Object.entries(selectedProducts)
+    .map(([prodId, qty]) => {
+      const prod = products.find((p) => p.id === prodId);
+      if (!prod || qty <= 0) return null;
+      return {
+        product_id: prod.id,
+        name: prod.name,
+        quantity: qty,
+        unit_price: Number(prod.sale_price || 0),
+        subtotal: Number(prod.sale_price || 0) * qty,
+      };
+    })
+    .filter(Boolean);
+
+  const servicesSubtotal = Number(selectedService?.price || 0);
+  const productsSubtotal = chosenProductsList.reduce((acc, item) => acc + item.subtotal, 0);
+  const finalTotal = servicesSubtotal + productsSubtotal;
+
+  const bookedTimes = appointments
+    .filter(
+      (a) =>
+        a.status !== 'cancelled' &&
+        a.status !== 'no_show' &&
+        a.date === date &&
+        (!barberId || a.barber_id === barberId)
+    )
+    .map((a) => a.time?.slice(0, 5));
+
+  const handleCreate = async (e) => {
+    e.preventDefault();
+    if (!serviceId || !date || !time || !clientName.trim() || !clientPhone.trim()) return;
+    setSaving(true);
+
+    const cleanName = clientName.trim();
+    const cleanPhone = clientPhone.trim();
+    const phoneDigits = cleanPhone.replace(/\D/g, '');
+
+    const { error } = await supabase.from('appointments').insert({
+      tenant_id: tenant.id,
+      service_id: serviceId,
+      barber_id: barberId || null,
+      client_name: cleanName,
+      client_phone: cleanPhone,
+      date,
+      time,
+      price_snapshot: finalTotal,
+      payment_method: paymentMethod,
+      selected_products: chosenProductsList,
+      status: 'scheduled',
+    });
+
+    if (error) {
+      setSaving(false);
+      notify('Erro ao criar agendamento: ' + error.message);
+      return;
+    }
+
+    if (phoneDigits) {
+      const { data: existingClient } = await supabase
+        .from('clients')
+        .select('id, total_visits')
+        .eq('tenant_id', tenant.id)
+        .eq('phone_clean', phoneDigits)
+        .maybeSingle();
+
+      if (existingClient) {
+        await supabase
+          .from('clients')
+          .update({
+            name: cleanName,
+            phone: cleanPhone,
+            total_visits: (existingClient.total_visits || 0) + 1,
+            last_visit: date,
+          })
+          .eq('id', existingClient.id);
+      } else {
+        await supabase.from('clients').insert({
+          tenant_id: tenant.id,
+          name: cleanName,
+          phone: cleanPhone,
+          phone_clean: phoneDigits,
+          total_visits: 1,
+          last_visit: date,
+        });
+      }
+    }
+
+    if (chosenProductsList.length > 0) {
+      for (const item of chosenProductsList) {
+        const originalProd = products.find((p) => p.id === item.product_id);
+        if (originalProd) {
+          await supabase
+            .from('products')
+            .update({ stock_qty: Math.max(0, Number(originalProd.stock_qty) - item.quantity) })
+            .eq('id', item.product_id);
+        }
+        await supabase.from('product_sales').insert({
+          tenant_id: tenant.id,
+          product_id: item.product_id,
+          product_name: item.name,
+          quantity: item.quantity,
+          unit_price: item.unit_price,
+          total_amount: item.subtotal,
+          sold_at: date,
+        });
+      }
+    }
+
+    setSaving(false);
+    notify(`Agendamento criado para ${cleanName} às ${time}!`);
+    onCreated();
+  };
+
+  return (
+    <div className="fixed inset-0 z-[60] bg-black/80 backdrop-blur-sm overflow-y-auto flex items-center justify-center p-4">
+      <div className="w-full max-w-2xl bg-zinc-900 border border-zinc-800 rounded-3xl p-6 shadow-2xl my-8">
+        <div className="flex items-center justify-between mb-5">
+          <div>
+            <h3 className="font-black text-base text-white flex items-center gap-2">
+              <Calendar className="w-4 h-4 text-amber-400" /> Novo Agendamento Manual
+            </h3>
+            <p className="text-xs text-zinc-400 mt-0.5">
+              Cadastre um horário pelo balcão ou WhatsApp com produtos extras e forma de pagamento
+            </p>
+          </div>
+          <button type="button" onClick={onClose} className="p-1.5 text-zinc-400 hover:text-white">
+            <XCircle className="w-5 h-5" />
+          </button>
+        </div>
+
+        <form onSubmit={handleCreate} className="space-y-5">
+          {/* Cliente: selecionar cadastrado ou digitar */}
+          <div className="p-4 rounded-2xl bg-zinc-950/80 border border-zinc-800 space-y-3">
+            <div>
+              <label className="block text-[11px] font-bold uppercase text-zinc-400 mb-1">
+                Cliente Cadastrado (Opcional)
+              </label>
+              <select
+                value={selectedClientId}
+                onChange={(e) => handleSelectExistingClient(e.target.value)}
+                className="w-full px-3.5 py-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-xs text-white focus:border-amber-500 focus:outline-none"
+              >
+                <option value="">-- Novo cliente / Digitar manualmente --</option>
+                {clients.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name} ({c.phone})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-[11px] font-bold uppercase text-zinc-400 mb-1">Nome do Cliente</label>
+                <input
+                  type="text"
+                  required
+                  value={clientName}
+                  onChange={(e) => setClientName(e.target.value)}
+                  placeholder="Nome completo"
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-xs text-white focus:border-amber-500 focus:outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] font-bold uppercase text-zinc-400 mb-1">WhatsApp</label>
+                <input
+                  type="text"
+                  required
+                  value={clientPhone}
+                  onChange={(e) => setClientPhone(e.target.value)}
+                  placeholder="(82) 99999-9999"
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-xs text-white focus:border-amber-500 focus:outline-none"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Serviço e Barbeiro */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-[11px] font-bold uppercase text-zinc-400 mb-1">Serviço</label>
+              <select
+                required
+                value={serviceId}
+                onChange={(e) => setServiceId(e.target.value)}
+                className="w-full px-3.5 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-xs text-white focus:border-amber-500 focus:outline-none"
+              >
+                {services.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name} — R$ {Number(s.price).toFixed(2)}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-bold uppercase text-zinc-400 mb-1">Barbeiro</label>
+              <select
+                value={barberId}
+                onChange={(e) => { setBarberId(e.target.value); setTime(''); }}
+                className="w-full px-3.5 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-xs text-white focus:border-amber-500 focus:outline-none"
+              >
+                <option value="">Sem preferência / Equipe</option>
+                {barbers.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {/* Data e Horário */}
+          <div className="space-y-2.5">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <label className="text-[11px] font-bold uppercase text-zinc-400">Data e Horário</label>
+              <input
+                type="date"
+                required
+                value={date}
+                onChange={(e) => { setDate(e.target.value); setTime(''); }}
+                className="px-3.5 py-2 rounded-xl bg-zinc-950 border border-zinc-800 text-xs font-bold text-white focus:border-amber-500 focus:outline-none"
+              />
+            </div>
+
+            <div className="grid grid-cols-3 sm:grid-cols-5 gap-1.5">
+              {TIME_SLOTS.map((slot) => {
+                const isTaken = bookedTimes.includes(slot);
+                const isSelected = time === slot;
+                return (
+                  <button
+                    key={slot}
+                    type="button"
+                    disabled={isTaken}
+                    onClick={() => setTime(slot)}
+                    className={`py-2 rounded-xl text-xs font-bold border transition ${
+                      isTaken
+                        ? 'bg-zinc-950/40 border-zinc-900 text-zinc-600 line-through cursor-not-allowed'
+                        : isSelected
+                        ? 'bg-amber-500 border-amber-400 text-zinc-950 font-black'
+                        : 'bg-zinc-950 border-zinc-800 text-zinc-200 hover:border-amber-500/50'
+                    }`}
+                  >
+                    {slot}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Reaproveitando os mesmos componentes de Produtos e Pagamento */}
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <label className="block text-[11px] font-bold uppercase text-zinc-400">
+                Produtos Extras (Opcional)
+              </label>
+              {productsSubtotal > 0 && (
+                <span className="text-xs font-black text-amber-400">
+                  + R$ {productsSubtotal.toFixed(2)}
+                </span>
+              )}
+            </div>
+            <ProductSelectorBlock
+              products={products}
+              selectedProducts={selectedProducts}
+              onChangeQty={handleProductQtyChange}
+            />
+          </div>
+
+          <div>
+            <label className="block text-[11px] font-bold uppercase text-zinc-400 mb-2">
+              Forma de Pagamento
+            </label>
+            <PaymentMethodSelector value={paymentMethod} onChange={setPaymentMethod} />
+          </div>
+
+          {/* Resumo Final */}
+          <div className="p-4 rounded-2xl bg-zinc-950 border border-zinc-800 space-y-2 text-xs">
+            <div className="flex justify-between">
+              <span className="text-zinc-400">Subtotal Serviços</span>
+              <span className="font-bold text-white">R$ {servicesSubtotal.toFixed(2)}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-zinc-400">Subtotal Produtos</span>
+              <span className="font-bold text-white">R$ {productsSubtotal.toFixed(2)}</span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="text-zinc-400">Forma de pagamento</span>
+              <PaymentMethodBadge method={paymentMethod} />
+            </div>
+            <div className="pt-2 border-t border-zinc-800 flex justify-between items-center">
+              <span className="font-black text-zinc-200">Total Final</span>
+              <span className="text-base font-black text-amber-400">R$ {finalTotal.toFixed(2)}</span>
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-2 pt-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-3 rounded-xl bg-zinc-800 text-zinc-300 text-xs font-bold hover:bg-zinc-700"
+            >
+              Cancelar
+            </button>
+            <button
+              type="submit"
+              disabled={saving || !serviceId || !time}
+              className="px-5 py-3 rounded-xl bg-amber-500 hover:bg-amber-400 disabled:opacity-40 text-zinc-950 text-xs font-black transition"
+            >
+              {saving ? 'Salvando...' : 'Confirmar Agendamento'}
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   );
 }
