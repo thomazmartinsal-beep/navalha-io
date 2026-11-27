@@ -7,7 +7,7 @@ import {
   Link2, ExternalLink, Copy, Clock, Phone,
   BarChart3, SlidersHorizontal, ChevronRight, MessageCircle, Megaphone, Search, Webhook,
   Smartphone, Play, Pause, Send, Upload, RefreshCw, UserX, CalendarClock,
-  CreditCard, Banknote, QrCode
+  CreditCard, Banknote, QrCode, FileText
 } from 'lucide-react';
 import { supabase } from './supabaseClient';
 import AgendaCalendarReport from './AgendaCalendarReport';
@@ -3131,6 +3131,513 @@ function OwnerDashboardShell({
 
   const maxChartVal = Math.max(grossRevenue, totalCommissions, totalExpenses, Math.abs(netProfit), 1);
 
+  const handleExportMonthlyFinancePdf = () => {
+    const escapeHtml = (str) =>
+      String(str ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+
+    const formatBRL = (val) =>
+      Number(val || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+
+    const formatDateBR = (dateStr) => {
+      if (!dateStr || typeof dateStr !== 'string') return '-';
+      const parts = dateStr.slice(0, 10).split('-');
+      if (parts.length !== 3) return dateStr;
+      return `${parts[2]}/${parts[1]}/${parts[0]}`;
+    };
+
+    const formatMonthLabel = (ym) => {
+      if (!ym || !ym.includes('-')) return ym || '';
+      const [year, month] = ym.split('-').map(Number);
+      const months = [
+        'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+        'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro',
+      ];
+      return `${months[(month || 1) - 1] || month} de ${year}`;
+    };
+
+    const monthLabel = formatMonthLabel(selectedMonth);
+    const generatedAt = new Date().toLocaleString('pt-BR');
+    const sortedCompletedApts = [...monthCompletedApts].sort((a, b) =>
+      `${a.date || ''} ${a.time || ''}`.localeCompare(`${b.date || ''} ${b.time || ''}`)
+    );
+
+    const paymentRowsHtml = [
+      ...paymentCards.map(
+        (item) => `
+        <tr>
+          <td><strong>${escapeHtml(item.label)}</strong></td>
+          <td class="num">${item.count}</td>
+          <td class="num">${item.percent}%</td>
+          <td class="num"><strong>${formatBRL(item.total)}</strong></td>
+        </tr>`
+      ),
+      ...(paymentBreakdown.other.count > 0
+        ? [
+            `
+        <tr>
+          <td>Outros / Não informado</td>
+          <td class="num">${paymentBreakdown.other.count}</td>
+          <td class="num">${getPaymentPercent(paymentBreakdown.other.total)}%</td>
+          <td class="num"><strong>${formatBRL(paymentBreakdown.other.total)}</strong></td>
+        </tr>`,
+          ]
+        : []),
+    ].join('');
+
+    const commissionRowsHtml =
+      barberCommissions.length > 0
+        ? barberCommissions
+            .map(
+              (b) => `
+        <tr>
+          <td><strong>${escapeHtml(b.name)}</strong>${b.role_title ? `<div class="sub">${escapeHtml(b.role_title)}</div>` : ''}</td>
+          <td class="num">${b.count}</td>
+          <td class="num">${formatBRL(b.totalGenerated)}</td>
+          <td class="num">${Number(b.commission_percent || 0)}%</td>
+          <td class="num"><strong>${formatBRL(b.commissionDue)}</strong></td>
+        </tr>`
+            )
+            .join('')
+        : `<tr><td colspan="5" class="empty">Nenhum barbeiro cadastrado.</td></tr>`;
+
+    const expenseRowsHtml =
+      monthExpenses.length > 0
+        ? monthExpenses
+            .map(
+              (e) => `
+        <tr>
+          <td>${formatDateBR(e.date)}</td>
+          <td>${escapeHtml(e.description)}</td>
+          <td class="num neg">- ${formatBRL(e.amount)}</td>
+        </tr>`
+            )
+            .join('')
+        : `<tr><td colspan="3" class="empty">Nenhuma despesa operacional lançada nesta competência.</td></tr>`;
+
+    const salesSectionHtml =
+      monthSales.length > 0
+        ? `
+      <div class="section">
+        <h2>Vendas de Produtos (${monthSales.length})</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Data</th>
+              <th>Produto</th>
+              <th class="num">Qtd</th>
+              <th class="num">Valor Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${monthSales
+              .map(
+                (s) => `
+              <tr>
+                <td>${formatDateBR(s.sold_at)}</td>
+                <td>${escapeHtml(s.product_name || 'Produto')}</td>
+                <td class="num">${Number(s.quantity || 1)}</td>
+                <td class="num"><strong>${formatBRL(s.total_amount)}</strong></td>
+              </tr>`
+              )
+              .join('')}
+          </tbody>
+          <tfoot>
+            <tr>
+              <td colspan="3"><strong>Total em Vendas de Produtos</strong></td>
+              <td class="num"><strong>${formatBRL(productsRevenue)}</strong></td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>`
+        : '';
+
+    const completedAptsRowsHtml =
+      sortedCompletedApts.length > 0
+        ? sortedCompletedApts
+            .map((a) => {
+              const srv = services.find((s) => s.id === a.service_id);
+              const barb = barbers.find((b) => b.id === a.barber_id);
+              const pmLabel = a.payment_method ? getPaymentMethodInfo(a.payment_method).label : '-';
+              return `
+        <tr>
+          <td>${formatDateBR(a.date)}</td>
+          <td>${escapeHtml((a.time || '').slice(0, 5))}</td>
+          <td>${escapeHtml(a.client_name || '-')}</td>
+          <td>${escapeHtml(srv?.name || 'Atendimento')}</td>
+          <td>${escapeHtml(barb?.name || '-')}</td>
+          <td>${escapeHtml(pmLabel)}</td>
+          <td class="num"><strong>${formatBRL(a.price_snapshot)}</strong></td>
+        </tr>`;
+            })
+            .join('')
+        : `<tr><td colspan="7" class="empty">Nenhum atendimento concluído nesta competência.</td></tr>`;
+
+    const reportHtml = `<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <title>Fechamento Mensal - ${escapeHtml(tenant.name)} (${escapeHtml(selectedMonth)})</title>
+  <style>
+    @page { size: A4; margin: 14mm; }
+    * { box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      color: #18181b;
+      background: #f4f4f5;
+      margin: 0;
+      padding: 20px;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+    .toolbar {
+      max-width: 820px;
+      margin: 0 auto 16px auto;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      background: #18181b;
+      color: #fff;
+      padding: 12px 16px;
+      border-radius: 12px;
+    }
+    .toolbar span { font-size: 13px; color: #d4d4d8; }
+    .toolbar-actions { display: flex; gap: 8px; }
+    .btn {
+      border: none;
+      border-radius: 8px;
+      padding: 9px 14px;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .btn-primary { background: #f59e0b; color: #09090b; }
+    .btn-secondary { background: #27272a; color: #e4e4e7; }
+    .sheet {
+      max-width: 820px;
+      margin: 0 auto;
+      background: #ffffff;
+      border-radius: 14px;
+      padding: 28px 32px;
+      box-shadow: 0 8px 30px rgba(0,0,0,0.08);
+    }
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 16px;
+      border-bottom: 2px solid #f59e0b;
+      padding-bottom: 16px;
+      margin-bottom: 20px;
+    }
+    .brand { display: flex; align-items: center; gap: 12px; }
+    .brand img {
+      width: 52px;
+      height: 52px;
+      border-radius: 10px;
+      object-fit: cover;
+      border: 1px solid #e4e4e7;
+    }
+    .brand h1 { margin: 0; font-size: 20px; text-transform: uppercase; letter-spacing: -0.3px; }
+    .brand p { margin: 3px 0 0 0; font-size: 12px; color: #52525b; }
+    .meta { text-align: right; font-size: 11px; color: #52525b; line-height: 1.5; }
+    .meta .badge {
+      display: inline-block;
+      background: #fef3c7;
+      color: #92400e;
+      border: 1px solid #fcd34d;
+      font-weight: 800;
+      font-size: 11px;
+      padding: 3px 10px;
+      border-radius: 999px;
+      margin-bottom: 6px;
+    }
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+    .kpi {
+      border: 1px solid #e4e4e7;
+      border-radius: 10px;
+      padding: 12px;
+      background: #fafafa;
+    }
+    .kpi .label { font-size: 10px; font-weight: 700; text-transform: uppercase; color: #71717a; }
+    .kpi .val { font-size: 17px; font-weight: 900; margin-top: 4px; color: #18181b; }
+    .kpi .hint { font-size: 10px; color: #71717a; margin-top: 3px; }
+    .kpi.net-pos { background: #ecfdf5; border-color: #a7f3d0; }
+    .kpi.net-pos .val { color: #047857; }
+    .kpi.net-neg { background: #fff1f2; border-color: #fecdd3; }
+    .kpi.net-neg .val { color: #be123c; }
+    .note-bar {
+      background: #f4f4f5;
+      border: 1px solid #e4e4e7;
+      border-radius: 8px;
+      padding: 9px 12px;
+      font-size: 11px;
+      color: #3f3f46;
+      margin-bottom: 20px;
+      display: flex;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .section { margin-top: 20px; break-inside: avoid; }
+    .section.allow-break { break-inside: auto; }
+    h2 {
+      font-size: 13px;
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+      color: #18181b;
+      margin: 0 0 8px 0;
+      padding-left: 8px;
+      border-left: 3px solid #f59e0b;
+    }
+    table { width: 100%; border-collapse: collapse; font-size: 11.5px; }
+    th, td { border-bottom: 1px solid #e4e4e7; padding: 7px 8px; text-align: left; vertical-align: top; }
+    thead th {
+      background: #f4f4f5;
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+      color: #52525b;
+      font-weight: 700;
+    }
+    tfoot td {
+      background: #fafafa;
+      border-top: 2px solid #d4d4d8;
+      border-bottom: none;
+      padding-top: 8px;
+      padding-bottom: 8px;
+    }
+    .num { text-align: right; white-space: nowrap; }
+    .neg { color: #be123c; font-weight: 700; }
+    .sub { font-size: 10px; color: #71717a; margin-top: 1px; }
+    .empty { text-align: center; color: #71717a; font-style: italic; padding: 14px; }
+    .footer {
+      margin-top: 24px;
+      padding-top: 12px;
+      border-top: 1px solid #e4e4e7;
+      font-size: 10px;
+      color: #71717a;
+      display: flex;
+      justify-content: space-between;
+    }
+    @media print {
+      body { background: #fff; padding: 0; }
+      .toolbar { display: none !important; }
+      .sheet { box-shadow: none; border-radius: 0; padding: 0; max-width: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="toolbar">
+    <span>Pré-visualização do Fechamento Mensal (${escapeHtml(monthLabel)})</span>
+    <div class="toolbar-actions">
+      <button class="btn btn-primary" onclick="window.print()">Salvar em PDF / Imprimir</button>
+      <button class="btn btn-secondary" onclick="window.close()">Fechar</button>
+    </div>
+  </div>
+
+  <div class="sheet">
+    <div class="header">
+      <div class="brand">
+        ${tenant.logo_url ? `<img src="${escapeHtml(tenant.logo_url)}" alt="${escapeHtml(tenant.name)}" />` : ''}
+        <div>
+          <h1>${escapeHtml(tenant.name)}</h1>
+          <p>Relatório de Fechamento e Rendimento Mensal</p>
+          ${tenant.owner_name || tenant.whatsapp ? `<p>${[tenant.owner_name ? `Resp.: ${escapeHtml(tenant.owner_name)}` : '', tenant.whatsapp ? `WhatsApp: ${escapeHtml(tenant.whatsapp)}` : ''].filter(Boolean).join(' • ')}</p>` : ''}
+        </div>
+      </div>
+      <div class="meta">
+        <div class="badge">${escapeHtml(monthLabel)}</div>
+        <div>Competência: <strong>${escapeHtml(selectedMonth)}</strong></div>
+        <div>Emitido em: ${escapeHtml(generatedAt)}</div>
+      </div>
+    </div>
+
+    <div class="kpi-grid">
+      <div class="kpi">
+        <div class="label">Faturamento Bruto</div>
+        <div class="val">${formatBRL(grossRevenue)}</div>
+        <div class="hint">Serviços: ${formatBRL(servicesRevenue)} • Produtos: ${formatBRL(productsRevenue)}</div>
+      </div>
+      <div class="kpi">
+        <div class="label">Comissões da Equipe</div>
+        <div class="val">${formatBRL(totalCommissions)}</div>
+        <div class="hint">${barberCommissions.length} profissional(is)</div>
+      </div>
+      <div class="kpi">
+        <div class="label">Despesas Operacionais</div>
+        <div class="val">${formatBRL(totalExpenses)}</div>
+        <div class="hint">${monthExpenses.length} lançamento(s)</div>
+      </div>
+      <div class="kpi ${netProfit >= 0 ? 'net-pos' : 'net-neg'}">
+        <div class="label">Rendimento Líquido</div>
+        <div class="val">${formatBRL(netProfit)}</div>
+        <div class="hint">${monthCompletedApts.length} atendimento(s) concluído(s)</div>
+      </div>
+    </div>
+
+    <div class="note-bar">
+      <span>Agenda futura prevista no mês: <strong>${formatBRL(projectedRevenue)}</strong> (${monthScheduledApts.length} horário(s) aguardando conclusão)</span>
+      <span>Margem líquida: <strong>${grossRevenue > 0 ? ((netProfit / grossRevenue) * 100).toFixed(1) : '0.0'}%</strong></span>
+    </div>
+
+    <div class="section">
+      <h2>Faturamento por Forma de Pagamento (Atendimentos Concluídos)</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Forma de Pagamento</th>
+            <th class="num">Atendimentos</th>
+            <th class="num">Participação</th>
+            <th class="num">Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${paymentRowsHtml}
+        </tbody>
+        <tfoot>
+          <tr>
+            <td><strong>Total em Atendimentos Concluídos</strong></td>
+            <td class="num"><strong>${monthCompletedApts.length}</strong></td>
+            <td class="num"><strong>100%</strong></td>
+            <td class="num"><strong>${formatBRL(servicesRevenue)}</strong></td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+
+    <div class="section">
+      <h2>Comissões por Barbeiro</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Profissional</th>
+            <th class="num">Cortes</th>
+            <th class="num">Faturamento Gerado</th>
+            <th class="num">Comissão (%)</th>
+            <th class="num">Valor a Pagar</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${commissionRowsHtml}
+        </tbody>
+        <tfoot>
+          <tr>
+            <td colspan="4"><strong>Total de Comissões da Equipe</strong></td>
+            <td class="num"><strong>${formatBRL(totalCommissions)}</strong></td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+
+    <div class="section">
+      <h2>Custos e Despesas Operacionais do Mês</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Data</th>
+            <th>Descrição</th>
+            <th class="num">Valor</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${expenseRowsHtml}
+        </tbody>
+        <tfoot>
+          <tr>
+            <td colspan="2"><strong>Total de Despesas</strong></td>
+            <td class="num neg">- ${formatBRL(totalExpenses)}</td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+
+    ${salesSectionHtml}
+
+    <div class="section allow-break">
+      <h2>Detalhamento de Atendimentos Concluídos (${sortedCompletedApts.length})</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Data</th>
+            <th>Hora</th>
+            <th>Cliente</th>
+            <th>Serviço</th>
+            <th>Barbeiro</th>
+            <th>Pagamento</th>
+            <th class="num">Valor</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${completedAptsRowsHtml}
+        </tbody>
+        <tfoot>
+          <tr>
+            <td colspan="6"><strong>Total em Atendimentos</strong></td>
+            <td class="num"><strong>${formatBRL(servicesRevenue)}</strong></td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+
+    <div class="footer">
+      <span>${escapeHtml(tenant.name)} • Fechamento Financeiro ${escapeHtml(selectedMonth)}</span>
+      <span>Documento gerado em ${escapeHtml(generatedAt)}</span>
+    </div>
+  </div>
+</body>
+</html>`;
+
+    const printWindow = window.open('', '_blank', 'width=960,height=800');
+    if (printWindow) {
+      printWindow.document.open();
+      printWindow.document.write(reportHtml);
+      printWindow.document.close();
+      setTimeout(() => {
+        try {
+          printWindow.focus();
+          printWindow.print();
+        } catch {
+          // Usuário pode clicar no botão "Salvar em PDF / Imprimir" na barra superior
+        }
+      }, 350);
+      return;
+    }
+
+    // Fallback caso o navegador bloqueie pop-ups
+    const iframe = document.createElement('iframe');
+    iframe.style.position = 'fixed';
+    iframe.style.right = '0';
+    iframe.style.bottom = '0';
+    iframe.style.width = '0';
+    iframe.style.height = '0';
+    iframe.style.border = '0';
+    document.body.appendChild(iframe);
+    const doc = iframe.contentWindow?.document;
+    if (doc) {
+      doc.open();
+      doc.write(reportHtml);
+      doc.close();
+      setTimeout(() => {
+        iframe.contentWindow?.focus();
+        iframe.contentWindow?.print();
+        setTimeout(() => document.body.removeChild(iframe), 1500);
+      }, 350);
+    } else {
+      notify('Permita pop-ups no navegador para exportar o relatório em PDF.');
+    }
+  };
+
   const filteredClients = clients.filter(
     (c) =>
       c.name.toLowerCase().includes(clientSearch.toLowerCase()) ||
@@ -4320,7 +4827,7 @@ function OwnerDashboardShell({
                 Visão consolidada de entradas, repasse de equipe e custos operacionais
               </p>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <span className="text-xs text-zinc-400">Competência:</span>
               <input
                 type="month"
@@ -4328,6 +4835,13 @@ function OwnerDashboardShell({
                 onChange={(e) => setSelectedMonth(e.target.value)}
                 className="px-3.5 py-2 rounded-xl bg-zinc-950 border border-zinc-800 text-xs font-bold text-white"
               />
+              <button
+                type="button"
+                onClick={handleExportMonthlyFinancePdf}
+                className="px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-zinc-950 font-black text-xs flex items-center gap-1.5 shadow-lg shadow-amber-500/20 transition"
+              >
+                <FileText className="w-3.5 h-3.5" /> Exportar PDF
+              </button>
             </div>
           </div>
 
