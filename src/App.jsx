@@ -53,6 +53,65 @@ const TIME_SLOTS = [
   '16:50', '17:30', '18:10', '18:50', '19:30'
 ];
 
+const WEEK_DAYS_OPTIONS = [
+  { id: 1, label: 'Seg' },
+  { id: 2, label: 'Ter' },
+  { id: 3, label: 'Qua' },
+  { id: 4, label: 'Qui' },
+  { id: 5, label: 'Sex' },
+  { id: 6, label: 'Sáb' },
+  { id: 0, label: 'Dom' },
+];
+
+const toMinutes = (hhmm) => {
+  if (!hhmm || typeof hhmm !== 'string' || !hhmm.includes(':')) return null;
+  const [h, m] = hhmm.split(':').map(Number);
+  if (Number.isNaN(h) || Number.isNaN(m)) return null;
+  return h * 60 + m;
+};
+
+const fromMinutes = (total) => {
+  const h = String(Math.floor(total / 60)).padStart(2, '0');
+  const m = String(total % 60).padStart(2, '0');
+  return `${h}:${m}`;
+};
+
+const getShopSlotsForDate = (shop, dateStr) => {
+  if (!shop) return TIME_SLOTS;
+
+  if (dateStr && Array.isArray(shop.working_days)) {
+    const [y, m, d] = dateStr.split('-').map(Number);
+    if (y && m && d) {
+      const weekday = new Date(y, m - 1, d).getDay();
+      if (!shop.working_days.includes(weekday)) return [];
+    }
+  }
+
+  if (!shop.open_time && !shop.close_time && !shop.slot_interval) {
+    return TIME_SLOTS;
+  }
+
+  const start = toMinutes(shop.open_time || '09:00');
+  const end = toMinutes(shop.close_time || '19:30');
+  const step = Math.max(10, Number(shop.slot_interval) || 40);
+  const lunchStart = toMinutes(shop.lunch_start);
+  const lunchEnd = toMinutes(shop.lunch_end);
+
+  if (start === null || end === null || start > end) return TIME_SLOTS;
+
+  const slots = [];
+  for (let cur = start; cur <= end; cur += step) {
+    const inLunch =
+      lunchStart !== null &&
+      lunchEnd !== null &&
+      lunchEnd > lunchStart &&
+      cur >= lunchStart &&
+      cur < lunchEnd;
+    if (!inLunch) slots.push(fromMinutes(cur));
+  }
+  return slots;
+};
+
 /* ============================================================================
    COMPONENTES REUTILIZÁVEIS: FORMA DE PAGAMENTO E PRODUTOS EXTRAS
    ============================================================================ */
@@ -576,6 +635,8 @@ function DedicatedShopBookingPage({
 
   const selectedService = services.find((s) => s.id === selectedServiceId);
   const selectedBarber = barbers.find((b) => b.id === selectedBarberId);
+  const activeDaySlots = getShopSlotsForDate(shop, date);
+  const rescheduleDaySlots = getShopSlotsForDate(shop, newRescheduleDate);
 
   const handleProductQtyChange = (productId, nextQty) => {
     setSelectedProducts((prev) => {
@@ -1091,29 +1152,40 @@ function DedicatedShopBookingPage({
                   />
                 </div>
 
-                <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
-                  {TIME_SLOTS.map((slot) => {
-                    const isBooked = bookedTimesOnDate.includes(slot);
-                    const isSelected = time === slot;
-                    return (
-                      <button
-                        type="button"
-                        key={slot}
-                        disabled={isBooked}
-                        onClick={() => setTime(slot)}
-                        className={`py-2.5 rounded-xl text-xs font-bold border transition ${
-                          isBooked
-                            ? 'bg-zinc-950/40 border-zinc-900 text-zinc-600 line-through cursor-not-allowed'
-                            : isSelected
-                            ? 'bg-amber-500 border-amber-400 text-zinc-950 font-black shadow-md shadow-amber-500/20'
-                            : 'bg-zinc-950 border-zinc-800 text-zinc-200 hover:border-amber-500/50'
-                        }`}
-                      >
-                        {slot}
-                      </button>
-                    );
-                  })}
-                </div>
+                {activeDaySlots.length === 0 ? (
+                  <div className="p-4 rounded-2xl bg-zinc-950/80 border border-zinc-800 text-center">
+                    <p className="text-xs font-bold text-amber-400">
+                      A barbearia não funciona neste dia da semana.
+                    </p>
+                    <p className="text-[11px] text-zinc-400 mt-1">
+                      Selecione outra data no calendário acima para ver os horários livres.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
+                    {activeDaySlots.map((slot) => {
+                      const isBooked = bookedTimesOnDate.includes(slot);
+                      const isSelected = time === slot;
+                      return (
+                        <button
+                          type="button"
+                          key={slot}
+                          disabled={isBooked}
+                          onClick={() => setTime(slot)}
+                          className={`py-2.5 rounded-xl text-xs font-bold border transition ${
+                            isBooked
+                              ? 'bg-zinc-950/40 border-zinc-900 text-zinc-600 line-through cursor-not-allowed'
+                              : isSelected
+                              ? 'bg-amber-500 border-amber-400 text-zinc-950 font-black shadow-md shadow-amber-500/20'
+                              : 'bg-zinc-950 border-zinc-800 text-zinc-200 hover:border-amber-500/50'
+                          }`}
+                        >
+                          {slot}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
 
               {/* PASSO 4: PRODUTOS EXTRAS (OPCIONAL) */}
@@ -1379,29 +1451,35 @@ function DedicatedShopBookingPage({
 
             <div>
               <label className="block text-[11px] font-bold uppercase text-zinc-400 mb-1.5">Novo Horário Livre</label>
-              <div className="grid grid-cols-3 gap-2">
-                {TIME_SLOTS.map((slot) => {
-                  const occupied = bookedTimesForReschedule.includes(slot);
-                  const picked = newRescheduleTime === slot;
-                  return (
-                    <button
-                      type="button"
-                      key={slot}
-                      disabled={occupied}
-                      onClick={() => setNewRescheduleTime(slot)}
-                      className={`py-2 rounded-xl text-xs font-bold border ${
-                        occupied
-                          ? 'bg-zinc-950/40 border-zinc-900 text-zinc-600 line-through'
-                          : picked
-                          ? 'bg-amber-500 border-amber-400 text-zinc-950 font-black'
-                          : 'bg-zinc-950 border-zinc-800 text-zinc-200'
-                      }`}
-                    >
-                      {slot}
-                    </button>
-                  );
-                })}
-              </div>
+              {rescheduleDaySlots.length === 0 ? (
+                <div className="p-3.5 rounded-xl bg-zinc-950 border border-zinc-800 text-center text-xs text-amber-400 font-bold">
+                  A barbearia não funciona nesta data. Escolha outro dia acima.
+                </div>
+              ) : (
+                <div className="grid grid-cols-3 gap-2">
+                  {rescheduleDaySlots.map((slot) => {
+                    const occupied = bookedTimesForReschedule.includes(slot);
+                    const picked = newRescheduleTime === slot;
+                    return (
+                      <button
+                        type="button"
+                        key={slot}
+                        disabled={occupied}
+                        onClick={() => setNewRescheduleTime(slot)}
+                        className={`py-2 rounded-xl text-xs font-bold border ${
+                          occupied
+                            ? 'bg-zinc-950/40 border-zinc-900 text-zinc-600 line-through'
+                            : picked
+                            ? 'bg-amber-500 border-amber-400 text-zinc-950 font-black'
+                            : 'bg-zinc-950 border-zinc-800 text-zinc-200'
+                        }`}
+                      >
+                        {slot}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </div>
 
             <button
@@ -1896,16 +1974,16 @@ function SuperAdminConsole({ tenants, onRefresh, onImpersonate, onCopyLink, onLo
   const [creating, setCreating] = useState(false);
   const [formError, setFormError] = useState('');
 
-  // Estados para edição de barbearia existente
+  // Edição de dados da barbearia pelo Super Admin
   const [editingTenant, setEditingTenant] = useState(null);
   const [editShopName, setEditShopName] = useState('');
-  const [editSlug, setEditSlug] = useState('');
+  const [editShopSlug, setEditShopSlug] = useState('');
   const [editOwnerName, setEditOwnerName] = useState('');
   const [editOwnerPhone, setEditOwnerPhone] = useState('');
   const [editPlanId, setEditPlanId] = useState('pro');
   const [editStatus, setEditStatus] = useState('active');
-  const [savingTenant, setSavingTenant] = useState(false);
-  const [editError, setEditError] = useState('');
+  const [savingTenantEdit, setSavingTenantEdit] = useState(false);
+  const [editTenantError, setEditTenantError] = useState('');
 
   const handleCreateBarbershop = async (e) => {
     e.preventDefault();
@@ -1938,23 +2016,29 @@ function SuperAdminConsole({ tenants, onRefresh, onImpersonate, onCopyLink, onLo
     onRefresh();
   };
 
+  const toggleStatus = async (tenant) => {
+    const nextStatus = tenant.status === 'blocked' ? 'active' : 'blocked';
+    await supabase.from('tenants').update({ status: nextStatus }).eq('id', tenant.id);
+    notify(`Status de ${tenant.name} alterado para ${nextStatus}.`);
+    onRefresh();
+  };
+
   const openEditTenantModal = (tenant) => {
-    setEditError('');
     setEditingTenant(tenant);
     setEditShopName(tenant.name || '');
-    setEditSlug(tenant.slug || '');
+    setEditShopSlug(tenant.slug || '');
     setEditOwnerName(tenant.owner_name || '');
     setEditOwnerPhone(tenant.owner_phone || '');
     setEditPlanId(tenant.plan_id || 'pro');
     setEditStatus(tenant.status || 'active');
+    setEditTenantError('');
   };
 
-  const handleUpdateBarbershop = async (e) => {
+  const handleSaveTenantEdit = async (e) => {
     e.preventDefault();
     if (!editingTenant) return;
-    setEditError('');
 
-    const cleanSlug = editSlug
+    const cleanSlug = editShopSlug
       .toLowerCase()
       .normalize('NFD')
       .replace(/[\u0300-\u036f]/g, '')
@@ -1962,43 +2046,34 @@ function SuperAdminConsole({ tenants, onRefresh, onImpersonate, onCopyLink, onLo
       .replace(/^-+|-+$/g, '');
 
     if (!editShopName.trim() || !cleanSlug) {
-      setEditError('Informe o nome da barbearia e um link válido.');
+      setEditTenantError('Preencha o nome da barbearia e um link válido.');
       return;
     }
 
-    setSavingTenant(true);
+    setSavingTenantEdit(true);
+    setEditTenantError('');
+
     const { error } = await supabase
       .from('tenants')
       .update({
         name: editShopName.trim(),
         slug: cleanSlug,
-        owner_name: editOwnerName.trim(),
+        owner_name: editOwnerName.trim() || null,
         owner_phone: editOwnerPhone.trim() || null,
         plan_id: editPlanId,
         status: editStatus,
       })
       .eq('id', editingTenant.id);
 
-    setSavingTenant(false);
+    setSavingTenantEdit(false);
 
     if (error) {
-      setEditError(
-        error.code === '23505'
-          ? 'Esse link (/b/...) já está em uso por outra barbearia.'
-          : error.message
-      );
+      setEditTenantError(error.message || 'Não foi possível salvar os dados. Verifique se o link já está em uso.');
       return;
     }
 
     setEditingTenant(null);
     notify('Dados da barbearia atualizados com sucesso!');
-    onRefresh();
-  };
-
-  const toggleStatus = async (tenant) => {
-    const nextStatus = tenant.status === 'blocked' ? 'active' : 'blocked';
-    await supabase.from('tenants').update({ status: nextStatus }).eq('id', tenant.id);
-    notify(`Status de ${tenant.name} alterado para ${nextStatus}.`);
     onRefresh();
   };
 
@@ -2038,7 +2113,7 @@ function SuperAdminConsole({ tenants, onRefresh, onImpersonate, onCopyLink, onLo
             <thead>
               <tr className="border-b border-zinc-800 bg-zinc-950/50 text-[11px] text-zinc-400 uppercase tracking-wider">
                 <th className="py-3.5 px-5">Barbearia</th>
-                <th className="py-3.5 px-5">Proprietário & Contato</th>
+                <th className="py-3.5 px-5">Proprietário</th>
                 <th className="py-3.5 px-5">Link Exclusivo</th>
                 <th className="py-3.5 px-5">Plano</th>
                 <th className="py-3.5 px-5 text-right">Ações Master</th>
@@ -2056,20 +2131,17 @@ function SuperAdminConsole({ tenants, onRefresh, onImpersonate, onCopyLink, onLo
                           <Scissors className="w-4 h-4" />
                         </div>
                       )}
-                      <div>
-                        <span className="font-bold text-white block">{t.name}</span>
-                        {t.status === 'blocked' && (
-                          <span className="text-[10px] font-bold uppercase text-rose-400">Bloqueada</span>
-                        )}
-                      </div>
+                      <span className="font-bold text-white">{t.name}</span>
                     </div>
                   </td>
                   <td className="py-4 px-5">
                     <p className="text-zinc-200 font-medium">{t.owner_name}</p>
                     <p className="text-xs text-zinc-500">{t.owner_email}</p>
-                    <p className="text-xs text-amber-400/90 flex items-center gap-1 mt-0.5">
-                      <Phone className="w-3 h-3" /> {t.owner_phone || 'Sem WhatsApp cadastrado'}
-                    </p>
+                    {t.owner_phone && (
+                      <p className="text-[11px] text-amber-400/90 mt-0.5 flex items-center gap-1">
+                        <Phone className="w-3 h-3" /> {t.owner_phone}
+                      </p>
+                    )}
                   </td>
                   <td className="py-4 px-5">
                     <div className="flex items-center gap-1.5">
@@ -2104,7 +2176,7 @@ function SuperAdminConsole({ tenants, onRefresh, onImpersonate, onCopyLink, onLo
                     <button
                       onClick={() => openEditTenantModal(t)}
                       className="p-2 rounded-xl bg-zinc-950 border border-zinc-800 text-zinc-300 hover:border-amber-500/50 hover:text-amber-400 transition"
-                      title="Editar Dados e Contato da Barbearia"
+                      title="Editar dados e WhatsApp da barbearia"
                     >
                       <Edit3 className="w-4 h-4" />
                     </button>
@@ -2123,7 +2195,6 @@ function SuperAdminConsole({ tenants, onRefresh, onImpersonate, onCopyLink, onLo
         </div>
       </div>
 
-      {/* MODAL CADASTRAR NOVA BARBEARIA */}
       {showNewModal && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm overflow-y-auto flex items-center justify-center p-4">
           <div className="w-full max-w-md bg-zinc-900 border border-zinc-800 rounded-3xl p-7 shadow-2xl my-8">
@@ -2231,14 +2302,13 @@ function SuperAdminConsole({ tenants, onRefresh, onImpersonate, onCopyLink, onLo
         </div>
       )}
 
-      {/* MODAL EDITAR DADOS DA BARBEARIA (SUPER ADMIN) */}
       {editingTenant && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm overflow-y-auto flex items-center justify-center p-4">
           <div className="w-full max-w-md bg-zinc-900 border border-zinc-800 rounded-3xl p-7 shadow-2xl my-8">
             <div className="flex items-center justify-between mb-5">
               <div>
                 <h3 className="font-black text-base text-white">Editar Barbearia</h3>
-                <p className="text-xs text-zinc-400">{editingTenant.owner_email}</p>
+                <p className="text-xs text-zinc-400 mt-0.5">Atualize nome, link, proprietário e WhatsApp</p>
               </div>
               <button
                 onClick={() => setEditingTenant(null)}
@@ -2248,7 +2318,7 @@ function SuperAdminConsole({ tenants, onRefresh, onImpersonate, onCopyLink, onLo
               </button>
             </div>
 
-            <form onSubmit={handleUpdateBarbershop} className="space-y-4">
+            <form onSubmit={handleSaveTenantEdit} className="space-y-4">
               <div>
                 <label className="block text-xs font-bold text-zinc-400 uppercase mb-1">Nome da Barbearia</label>
                 <input
@@ -2265,8 +2335,8 @@ function SuperAdminConsole({ tenants, onRefresh, onImpersonate, onCopyLink, onLo
                 <input
                   type="text"
                   required
-                  value={editSlug}
-                  onChange={(e) => setEditSlug(e.target.value)}
+                  value={editShopSlug}
+                  onChange={(e) => setEditShopSlug(e.target.value)}
                   className="w-full px-3.5 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-sm text-white"
                 />
               </div>
@@ -2276,7 +2346,6 @@ function SuperAdminConsole({ tenants, onRefresh, onImpersonate, onCopyLink, onLo
                   <label className="block text-xs font-bold text-zinc-400 uppercase mb-1">Nome do Dono</label>
                   <input
                     type="text"
-                    required
                     value={editOwnerName}
                     onChange={(e) => setEditOwnerName(e.target.value)}
                     className="w-full px-3.5 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-sm text-white"
@@ -2320,19 +2389,19 @@ function SuperAdminConsole({ tenants, onRefresh, onImpersonate, onCopyLink, onLo
                 </div>
               </div>
 
-              {editError && (
+              {editTenantError && (
                 <p className="text-xs text-rose-400 bg-rose-500/10 border border-rose-500/20 p-3 rounded-xl">
-                  {editError}
+                  {editTenantError}
                 </p>
               )}
 
               <button
                 type="submit"
-                disabled={savingTenant}
+                disabled={savingTenantEdit}
                 className="w-full py-3.5 rounded-xl bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-zinc-950 font-black text-sm transition flex items-center justify-center gap-2"
               >
-                {savingTenant && <Loader2 className="w-4 h-4 animate-spin" />}
-                <span>{savingTenant ? 'Salvando...' : 'Salvar Alterações'}</span>
+                {savingTenantEdit && <Loader2 className="w-4 h-4 animate-spin" />}
+                <span>{savingTenantEdit ? 'Salvando...' : 'Salvar Alterações'}</span>
               </button>
             </form>
           </div>
@@ -2341,7 +2410,6 @@ function SuperAdminConsole({ tenants, onRefresh, onImpersonate, onCopyLink, onLo
     </div>
   );
 }
-
 // === FIM DA PARTE 1 — COLE A PARTE 2 LOGO ABAIXO ===
 // === INÍCIO DA PARTE 2 ===
 /* ============================================================================
@@ -2365,7 +2433,7 @@ function OwnerDashboardShell({
   const [activeTab, setActiveTab] = useState('agenda');
   const [showManualBookingModal, setShowManualBookingModal] = useState(false);
 
-  // Identidade Visual & Regras de Cancelamento
+  // Identidade Visual, Contato, Funcionamento & Regras de Cancelamento
   const [showBrandModal, setShowBrandModal] = useState(false);
   const [brandName, setBrandName] = useState(tenant?.name || '');
   const [brandSlug, setBrandSlug] = useState(tenant?.slug || '');
@@ -2373,6 +2441,14 @@ function OwnerDashboardShell({
   const [brandOwnerPhone, setBrandOwnerPhone] = useState(tenant?.owner_phone || '');
   const [brandLogoUrl, setBrandLogoUrl] = useState(tenant?.logo_url || '');
   const [minCancelHours, setMinCancelHours] = useState(String(tenant?.min_cancel_hours ?? 2));
+  const [workingDays, setWorkingDays] = useState(
+    Array.isArray(tenant?.working_days) ? tenant.working_days : [1, 2, 3, 4, 5, 6]
+  );
+  const [openTime, setOpenTime] = useState(tenant?.open_time || '09:00');
+  const [closeTime, setCloseTime] = useState(tenant?.close_time || '19:30');
+  const [lunchStart, setLunchStart] = useState(tenant?.lunch_start || '12:00');
+  const [lunchEnd, setLunchEnd] = useState(tenant?.lunch_end || '13:30');
+  const [slotInterval, setSlotInterval] = useState(String(tenant?.slot_interval || 40));
   const [uploadingLogo, setUploadingLogo] = useState(false);
 
   // Repescagem de vaga cancelada no WhatsApp
@@ -2479,21 +2555,26 @@ function OwnerDashboardShell({
       .update({
         name: brandName.trim(),
         slug: cleanSlug,
-        owner_name: brandOwnerName.trim() || tenant.owner_name,
+        owner_name: brandOwnerName.trim() || null,
         owner_phone: brandOwnerPhone.trim() || null,
         logo_url: brandLogoUrl.trim() || null,
         min_cancel_hours: Number(minCancelHours) || 0,
+        working_days: workingDays,
+        open_time: openTime || '09:00',
+        close_time: closeTime || '19:30',
+        lunch_start: lunchStart || null,
+        lunch_end: lunchEnd || null,
+        slot_interval: Number(slotInterval) || 40,
       })
       .eq('id', tenant.id);
 
-
     if (error) {
-      notify('Esse link já está em uso por outra barbearia.');
+      notify('Erro ao salvar configurações: ' + error.message);
       return;
     }
 
     setShowBrandModal(false);
-    notify('Marca e regras de cancelamento atualizadas!');
+    notify('Marca, contato e horários de funcionamento atualizados!');
     onRefresh();
   };
 
@@ -2749,16 +2830,38 @@ function OwnerDashboardShell({
     }
     onRefresh();
   };
-const handleDeleteAppointment = async (apt) => {
-    if (!window.confirm(`Eliminar permanentemente a marcação de ${apt.client_name}?`)) return;
+
+  const handleDeleteAppointment = async (apt) => {
+    if (!window.confirm(`Excluir permanentemente o agendamento de ${apt.client_name}?`)) return;
+
+    if (Array.isArray(apt.selected_products) && apt.selected_products.length > 0) {
+      for (const item of apt.selected_products) {
+        const prod = products.find((p) => p.id === item.product_id);
+        if (prod) {
+          await supabase
+            .from('products')
+            .update({ stock_qty: Number(prod.stock_qty || 0) + Number(item.quantity || 0) })
+            .eq('id', prod.id);
+        }
+        await supabase
+          .from('product_sales')
+          .delete()
+          .eq('tenant_id', tenant.id)
+          .eq('product_id', item.product_id)
+          .eq('sold_at', apt.date)
+          .eq('quantity', item.quantity);
+      }
+    }
+
     const { error } = await supabase.from('appointments').delete().eq('id', apt.id);
     if (error) {
-      notify('Erro ao eliminar marcação: ' + error.message);
+      notify('Erro ao excluir agendamento: ' + error.message);
       return;
     }
-    notify('Marcação eliminada permanentemente.');
+    notify('Agendamento excluído permanentemente e valores estornados.');
     onRefresh();
   };
+
   const handleAddService = async (e) => {
     e.preventDefault();
     if (!srvName || !srvPrice) return;
@@ -3149,7 +3252,7 @@ const handleDeleteAppointment = async (apt) => {
         />
 
         <div className="flex flex-wrap items-center gap-2">
-<button
+          <button
             onClick={() => {
               setBrandName(tenant.name || '');
               setBrandSlug(tenant.slug || '');
@@ -3157,12 +3260,18 @@ const handleDeleteAppointment = async (apt) => {
               setBrandOwnerPhone(tenant.owner_phone || '');
               setBrandLogoUrl(tenant.logo_url || '');
               setMinCancelHours(String(tenant.min_cancel_hours ?? 2));
+              setWorkingDays(Array.isArray(tenant.working_days) ? tenant.working_days : [1, 2, 3, 4, 5, 6]);
+              setOpenTime(tenant.open_time || '09:00');
+              setCloseTime(tenant.close_time || '19:30');
+              setLunchStart(tenant.lunch_start || '12:00');
+              setLunchEnd(tenant.lunch_end || '13:30');
+              setSlotInterval(String(tenant.slot_interval || 40));
               setShowBrandModal(true);
             }}
             className="px-3.5 py-2 rounded-xl bg-zinc-950 border border-zinc-800 text-zinc-200 hover:border-amber-500/50 hover:text-white text-xs font-bold flex items-center gap-1.5 transition"
-            title="Editar Dados, WhatsApp de Contato, Logo e Regras"
+            title="Personalizar Marca, WhatsApp e Horários de Funcionamento"
           >
-            <SlidersHorizontal className="w-3.5 h-3.5 text-amber-400" /> Dados e Marca
+            <SlidersHorizontal className="w-3.5 h-3.5 text-amber-400" /> Configurar Loja
           </button>
 
           <button
@@ -3782,13 +3891,14 @@ const handleDeleteAppointment = async (apt) => {
                             )}
                           </div>
                         )}
+
                         <button
-              onClick={() => handleDeleteAppointment(a)}
-              className="p-1.5 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-500 hover:border-rose-500/40 hover:text-rose-400 transition"
-              title="Eliminar marcação permanentemente"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-            </button>
+                          onClick={() => handleDeleteAppointment(a)}
+                          className="p-1.5 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-500 hover:border-rose-500/40 hover:text-rose-400 transition"
+                          title="Excluir agendamento permanentemente"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
                       </div>
                     </div>
                   );
@@ -3798,7 +3908,6 @@ const handleDeleteAppointment = async (apt) => {
           </div>
         </div>
       )}
-                      
 
       {/* ABA CLIENTES & PROMOÇÕES */}
       {activeTab === 'clientes' && (
@@ -4583,7 +4692,10 @@ const handleDeleteAppointment = async (apt) => {
                   Horários rápidos para {editDate} (ocupados ficam riscados)
                 </label>
                 <div className="grid grid-cols-3 sm:grid-cols-5 gap-1.5">
-                  {TIME_SLOTS.map((slot) => {
+                  {(getShopSlotsForDate(tenant, editDate).length > 0
+                    ? getShopSlotsForDate(tenant, editDate)
+                    : getShopSlotsForDate({ ...tenant, working_days: [0, 1, 2, 3, 4, 5, 6] }, editDate)
+                  ).map((slot) => {
                     const isTaken = bookedTimesForEdit.includes(slot);
                     const isSelected = editTime === slot;
                     return (
@@ -4750,18 +4862,18 @@ const handleDeleteAppointment = async (apt) => {
         </div>
       )}
 
-      {/* MODAL IDENTIDADE VISUAL & POLÍTICA DE CANCELAMENTO */}
+      {/* MODAL IDENTIDADE VISUAL, CONTATO & HORÁRIOS DE FUNCIONAMENTO */}
       {showBrandModal && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm overflow-y-auto flex items-center justify-center p-4">
-          <div className="w-full max-w-md bg-zinc-900 border border-zinc-800 rounded-3xl p-6 shadow-2xl my-8">
+          <div className="w-full max-w-lg bg-zinc-900 border border-zinc-800 rounded-3xl p-6 shadow-2xl my-8">
             <div className="flex items-center justify-between mb-5">
-              <h3 className="font-black text-base text-white">Marca e Regras da Barbearia</h3>
+              <h3 className="font-black text-base text-white">Configurações, Marca e Horários</h3>
               <button onClick={() => setShowBrandModal(false)} className="p-1.5 text-zinc-400 hover:text-white">
                 <XCircle className="w-5 h-5" />
               </button>
             </div>
 
-<form onSubmit={handleSaveBrandIdentity} className="space-y-4">
+            <form onSubmit={handleSaveBrandIdentity} className="space-y-4">
               <div className="flex items-center gap-4 p-3.5 rounded-2xl bg-zinc-950 border border-zinc-800">
                 {brandLogoUrl ? (
                   <img src={brandLogoUrl} alt="Prévia" className="w-14 h-14 rounded-xl object-cover border border-amber-500/40" />
@@ -4802,19 +4914,19 @@ const handleDeleteAppointment = async (apt) => {
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-[11px] font-bold uppercase text-zinc-400 mb-1">Nome do Responsável</label>
+                  <label className="block text-[11px] font-bold uppercase text-zinc-400 mb-1">Nome do Proprietário</label>
                   <input
                     type="text"
-                    required
                     value={brandOwnerName}
                     onChange={(e) => setBrandOwnerName(e.target.value)}
+                    placeholder="Ex: João Silva"
                     className="w-full px-3.5 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-sm text-white"
                   />
                 </div>
                 <div>
-                  <label className="block text-[11px] font-bold uppercase text-zinc-400 mb-1">WhatsApp de Contato</label>
+                  <label className="block text-[11px] font-bold uppercase text-zinc-400 mb-1">WhatsApp da Barbearia</label>
                   <input
                     type="text"
                     value={brandOwnerPhone}
@@ -4843,6 +4955,122 @@ const handleDeleteAppointment = async (apt) => {
                 </select>
               </div>
 
+              {/* DIAS E HORÁRIOS DE FUNCIONAMENTO */}
+              <div className="pt-3 border-t border-zinc-800 space-y-3">
+                <div className="flex items-center justify-between">
+                  <label className="block text-[11px] font-bold uppercase text-amber-400 flex items-center gap-1.5">
+                    <Clock className="w-3.5 h-3.5" /> Funcionamento e Horários
+                  </label>
+                  <span className="text-[10px] text-zinc-400">
+                    {
+                      getShopSlotsForDate(
+                        {
+                          working_days: [0, 1, 2, 3, 4, 5, 6],
+                          open_time: openTime,
+                          close_time: closeTime,
+                          lunch_start: lunchStart || null,
+                          lunch_end: lunchEnd || null,
+                          slot_interval: Number(slotInterval) || 40,
+                        },
+                        null
+                      ).length
+                    }{' '}
+                    horários/dia
+                  </span>
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-bold uppercase text-zinc-400 mb-1.5">
+                    Dias da Semana Abertos
+                  </label>
+                  <div className="grid grid-cols-7 gap-1.5">
+                    {WEEK_DAYS_OPTIONS.map((d) => {
+                      const active = workingDays.includes(d.id);
+                      return (
+                        <button
+                          key={d.id}
+                          type="button"
+                          onClick={() =>
+                            setWorkingDays((prev) =>
+                              prev.includes(d.id) ? prev.filter((x) => x !== d.id) : [...prev, d.id]
+                            )
+                          }
+                          className={`py-2 rounded-xl text-xs font-black border transition ${
+                            active
+                              ? 'bg-amber-500 border-amber-400 text-zinc-950'
+                              : 'bg-zinc-950 border-zinc-800 text-zinc-500 hover:text-zinc-300'
+                          }`}
+                        >
+                          {d.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2.5">
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase text-zinc-400 mb-1">Abertura</label>
+                    <input
+                      type="time"
+                      required
+                      value={openTime}
+                      onChange={(e) => setOpenTime(e.target.value)}
+                      className="w-full px-3 py-2 rounded-xl bg-zinc-950 border border-zinc-800 text-xs text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase text-zinc-400 mb-1">Fechamento</label>
+                    <input
+                      type="time"
+                      required
+                      value={closeTime}
+                      onChange={(e) => setCloseTime(e.target.value)}
+                      className="w-full px-3 py-2 rounded-xl bg-zinc-950 border border-zinc-800 text-xs text-white"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-3 gap-2">
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase text-zinc-400 mb-1">Início Pausa</label>
+                    <input
+                      type="time"
+                      value={lunchStart}
+                      onChange={(e) => setLunchStart(e.target.value)}
+                      className="w-full px-2.5 py-2 rounded-xl bg-zinc-950 border border-zinc-800 text-xs text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase text-zinc-400 mb-1">Fim Pausa</label>
+                    <input
+                      type="time"
+                      value={lunchEnd}
+                      onChange={(e) => setLunchEnd(e.target.value)}
+                      className="w-full px-2.5 py-2 rounded-xl bg-zinc-950 border border-zinc-800 text-xs text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase text-zinc-400 mb-1">Intervalo</label>
+                    <select
+                      value={slotInterval}
+                      onChange={(e) => setSlotInterval(e.target.value)}
+                      className="w-full px-2 py-2 rounded-xl bg-zinc-950 border border-zinc-800 text-xs text-white"
+                    >
+                      <option value="15">15 min</option>
+                      <option value="20">20 min</option>
+                      <option value="30">30 min</option>
+                      <option value="40">40 min</option>
+                      <option value="45">45 min</option>
+                      <option value="60">60 min</option>
+                    </select>
+                  </div>
+                </div>
+                <p className="text-[10px] text-zinc-500">
+                  Deixe Início/Fim Pausa vazios caso a barbearia não feche para almoço.
+                </p>
+              </div>
+
               <button
                 type="submit"
                 disabled={uploadingLogo}
@@ -4850,7 +5078,7 @@ const handleDeleteAppointment = async (apt) => {
               >
                 Salvar Configurações
               </button>
-            </form> 
+            </form>
           </div>
         </div>
       )}
@@ -5121,38 +5349,53 @@ function ManualBookingModal({
           <div className="space-y-2.5">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <label className="text-[11px] font-bold uppercase text-zinc-400">Data e Horário</label>
-              <input
-                type="date"
-                required
-                value={date}
-                onChange={(e) => { setDate(e.target.value); setTime(''); }}
-                className="px-3.5 py-2 rounded-xl bg-zinc-950 border border-zinc-800 text-xs font-bold text-white focus:border-amber-500 focus:outline-none"
-              />
+              <div className="flex items-center gap-2">
+                <input
+                  type="date"
+                  required
+                  value={date}
+                  onChange={(e) => { setDate(e.target.value); setTime(''); }}
+                  className="px-3.5 py-2 rounded-xl bg-zinc-950 border border-zinc-800 text-xs font-bold text-white focus:border-amber-500 focus:outline-none"
+                />
+                <input
+                  type="time"
+                  value={time}
+                  onChange={(e) => setTime(e.target.value)}
+                  title="Ou digite um horário de encaixe manual"
+                  className="px-3 py-2 rounded-xl bg-zinc-950 border border-zinc-800 text-xs font-bold text-white focus:border-amber-500 focus:outline-none"
+                />
+              </div>
             </div>
 
-            <div className="grid grid-cols-3 sm:grid-cols-5 gap-1.5">
-              {TIME_SLOTS.map((slot) => {
-                const isTaken = bookedTimes.includes(slot);
-                const isSelected = time === slot;
-                return (
-                  <button
-                    key={slot}
-                    type="button"
-                    disabled={isTaken}
-                    onClick={() => setTime(slot)}
-                    className={`py-2 rounded-xl text-xs font-bold border transition ${
-                      isTaken
-                        ? 'bg-zinc-950/40 border-zinc-900 text-zinc-600 line-through cursor-not-allowed'
-                        : isSelected
-                        ? 'bg-amber-500 border-amber-400 text-zinc-950 font-black'
-                        : 'bg-zinc-950 border-zinc-800 text-zinc-200 hover:border-amber-500/50'
-                    }`}
-                  >
-                    {slot}
-                  </button>
-                );
-              })}
-            </div>
+            {getShopSlotsForDate(tenant, date).length === 0 ? (
+              <div className="p-3 rounded-xl bg-zinc-950/80 border border-amber-500/30 text-xs text-amber-400">
+                Dia configurado como fechado. Se quiser fazer um encaixe excepcional, informe o horário no campo acima.
+              </div>
+            ) : (
+              <div className="grid grid-cols-3 sm:grid-cols-5 gap-1.5">
+                {getShopSlotsForDate(tenant, date).map((slot) => {
+                  const isTaken = bookedTimes.includes(slot);
+                  const isSelected = time === slot;
+                  return (
+                    <button
+                      key={slot}
+                      type="button"
+                      disabled={isTaken}
+                      onClick={() => setTime(slot)}
+                      className={`py-2 rounded-xl text-xs font-bold border transition ${
+                        isTaken
+                          ? 'bg-zinc-950/40 border-zinc-900 text-zinc-600 line-through cursor-not-allowed'
+                          : isSelected
+                          ? 'bg-amber-500 border-amber-400 text-zinc-950 font-black'
+                          : 'bg-zinc-950 border-zinc-800 text-zinc-200 hover:border-amber-500/50'
+                      }`}
+                    >
+                      {slot}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
           {/* Reaproveitando os mesmos componentes de Produtos e Pagamento */}
