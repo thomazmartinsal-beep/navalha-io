@@ -1896,6 +1896,17 @@ function SuperAdminConsole({ tenants, onRefresh, onImpersonate, onCopyLink, onLo
   const [creating, setCreating] = useState(false);
   const [formError, setFormError] = useState('');
 
+  // Estados para edição de barbearia existente
+  const [editingTenant, setEditingTenant] = useState(null);
+  const [editShopName, setEditShopName] = useState('');
+  const [editSlug, setEditSlug] = useState('');
+  const [editOwnerName, setEditOwnerName] = useState('');
+  const [editOwnerPhone, setEditOwnerPhone] = useState('');
+  const [editPlanId, setEditPlanId] = useState('pro');
+  const [editStatus, setEditStatus] = useState('active');
+  const [savingTenant, setSavingTenant] = useState(false);
+  const [editError, setEditError] = useState('');
+
   const handleCreateBarbershop = async (e) => {
     e.preventDefault();
     setFormError('');
@@ -1924,6 +1935,63 @@ function SuperAdminConsole({ tenants, onRefresh, onImpersonate, onCopyLink, onLo
     setOwnerPhone('');
     setOwnerPassword('');
     notify('Barbearia cadastrada com link exclusivo!');
+    onRefresh();
+  };
+
+  const openEditTenantModal = (tenant) => {
+    setEditError('');
+    setEditingTenant(tenant);
+    setEditShopName(tenant.name || '');
+    setEditSlug(tenant.slug || '');
+    setEditOwnerName(tenant.owner_name || '');
+    setEditOwnerPhone(tenant.owner_phone || '');
+    setEditPlanId(tenant.plan_id || 'pro');
+    setEditStatus(tenant.status || 'active');
+  };
+
+  const handleUpdateBarbershop = async (e) => {
+    e.preventDefault();
+    if (!editingTenant) return;
+    setEditError('');
+
+    const cleanSlug = editSlug
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9-]+/g, '-')
+      .replace(/^-+|-+$/g, '');
+
+    if (!editShopName.trim() || !cleanSlug) {
+      setEditError('Informe o nome da barbearia e um link válido.');
+      return;
+    }
+
+    setSavingTenant(true);
+    const { error } = await supabase
+      .from('tenants')
+      .update({
+        name: editShopName.trim(),
+        slug: cleanSlug,
+        owner_name: editOwnerName.trim(),
+        owner_phone: editOwnerPhone.trim() || null,
+        plan_id: editPlanId,
+        status: editStatus,
+      })
+      .eq('id', editingTenant.id);
+
+    setSavingTenant(false);
+
+    if (error) {
+      setEditError(
+        error.code === '23505'
+          ? 'Esse link (/b/...) já está em uso por outra barbearia.'
+          : error.message
+      );
+      return;
+    }
+
+    setEditingTenant(null);
+    notify('Dados da barbearia atualizados com sucesso!');
     onRefresh();
   };
 
@@ -1970,7 +2038,7 @@ function SuperAdminConsole({ tenants, onRefresh, onImpersonate, onCopyLink, onLo
             <thead>
               <tr className="border-b border-zinc-800 bg-zinc-950/50 text-[11px] text-zinc-400 uppercase tracking-wider">
                 <th className="py-3.5 px-5">Barbearia</th>
-                <th className="py-3.5 px-5">Proprietário</th>
+                <th className="py-3.5 px-5">Proprietário & Contato</th>
                 <th className="py-3.5 px-5">Link Exclusivo</th>
                 <th className="py-3.5 px-5">Plano</th>
                 <th className="py-3.5 px-5 text-right">Ações Master</th>
@@ -1988,12 +2056,20 @@ function SuperAdminConsole({ tenants, onRefresh, onImpersonate, onCopyLink, onLo
                           <Scissors className="w-4 h-4" />
                         </div>
                       )}
-                      <span className="font-bold text-white">{t.name}</span>
+                      <div>
+                        <span className="font-bold text-white block">{t.name}</span>
+                        {t.status === 'blocked' && (
+                          <span className="text-[10px] font-bold uppercase text-rose-400">Bloqueada</span>
+                        )}
+                      </div>
                     </div>
                   </td>
                   <td className="py-4 px-5">
                     <p className="text-zinc-200 font-medium">{t.owner_name}</p>
                     <p className="text-xs text-zinc-500">{t.owner_email}</p>
+                    <p className="text-xs text-amber-400/90 flex items-center gap-1 mt-0.5">
+                      <Phone className="w-3 h-3" /> {t.owner_phone || 'Sem WhatsApp cadastrado'}
+                    </p>
                   </td>
                   <td className="py-4 px-5">
                     <div className="flex items-center gap-1.5">
@@ -2018,12 +2094,19 @@ function SuperAdminConsole({ tenants, onRefresh, onImpersonate, onCopyLink, onLo
                       {t.plan_id}
                     </span>
                   </td>
-                  <td className="py-4 px-5 text-right space-x-2">
+                  <td className="py-4 px-5 text-right space-x-2 whitespace-nowrap">
                     <button
                       onClick={() => onImpersonate(t.id)}
                       className="px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-zinc-950 text-xs font-black inline-flex items-center gap-1.5 transition"
                     >
                       <Eye className="w-3.5 h-3.5" /> Gerenciar Painel
+                    </button>
+                    <button
+                      onClick={() => openEditTenantModal(t)}
+                      className="p-2 rounded-xl bg-zinc-950 border border-zinc-800 text-zinc-300 hover:border-amber-500/50 hover:text-amber-400 transition"
+                      title="Editar Dados e Contato da Barbearia"
+                    >
+                      <Edit3 className="w-4 h-4" />
                     </button>
                     <button
                       onClick={() => toggleStatus(t)}
@@ -2040,6 +2123,7 @@ function SuperAdminConsole({ tenants, onRefresh, onImpersonate, onCopyLink, onLo
         </div>
       </div>
 
+      {/* MODAL CADASTRAR NOVA BARBEARIA */}
       {showNewModal && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm overflow-y-auto flex items-center justify-center p-4">
           <div className="w-full max-w-md bg-zinc-900 border border-zinc-800 rounded-3xl p-7 shadow-2xl my-8">
@@ -2146,9 +2230,118 @@ function SuperAdminConsole({ tenants, onRefresh, onImpersonate, onCopyLink, onLo
           </div>
         </div>
       )}
+
+      {/* MODAL EDITAR DADOS DA BARBEARIA (SUPER ADMIN) */}
+      {editingTenant && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm overflow-y-auto flex items-center justify-center p-4">
+          <div className="w-full max-w-md bg-zinc-900 border border-zinc-800 rounded-3xl p-7 shadow-2xl my-8">
+            <div className="flex items-center justify-between mb-5">
+              <div>
+                <h3 className="font-black text-base text-white">Editar Barbearia</h3>
+                <p className="text-xs text-zinc-400">{editingTenant.owner_email}</p>
+              </div>
+              <button
+                onClick={() => setEditingTenant(null)}
+                className="p-2 rounded-xl text-zinc-400 hover:text-white hover:bg-zinc-800"
+              >
+                <XCircle className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleUpdateBarbershop} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-zinc-400 uppercase mb-1">Nome da Barbearia</label>
+                <input
+                  type="text"
+                  required
+                  value={editShopName}
+                  onChange={(e) => setEditShopName(e.target.value)}
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-sm text-white"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-zinc-400 uppercase mb-1">Link Exclusivo (/b/...)</label>
+                <input
+                  type="text"
+                  required
+                  value={editSlug}
+                  onChange={(e) => setEditSlug(e.target.value)}
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-sm text-white"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-zinc-400 uppercase mb-1">Nome do Dono</label>
+                  <input
+                    type="text"
+                    required
+                    value={editOwnerName}
+                    onChange={(e) => setEditOwnerName(e.target.value)}
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-sm text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-zinc-400 uppercase mb-1">WhatsApp da Loja</label>
+                  <input
+                    type="text"
+                    value={editOwnerPhone}
+                    onChange={(e) => setEditOwnerPhone(e.target.value)}
+                    placeholder="(82) 99999-0000"
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-sm text-white"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-zinc-400 uppercase mb-1">Plano</label>
+                  <select
+                    value={editPlanId}
+                    onChange={(e) => setEditPlanId(e.target.value)}
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-sm text-white"
+                  >
+                    <option value="starter">Starter</option>
+                    <option value="pro">Pro</option>
+                    <option value="enterprise">Enterprise</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-zinc-400 uppercase mb-1">Status</label>
+                  <select
+                    value={editStatus}
+                    onChange={(e) => setEditStatus(e.target.value)}
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-sm text-white"
+                  >
+                    <option value="active">Ativa</option>
+                    <option value="blocked">Bloqueada</option>
+                  </select>
+                </div>
+              </div>
+
+              {editError && (
+                <p className="text-xs text-rose-400 bg-rose-500/10 border border-rose-500/20 p-3 rounded-xl">
+                  {editError}
+                </p>
+              )}
+
+              <button
+                type="submit"
+                disabled={savingTenant}
+                className="w-full py-3.5 rounded-xl bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-zinc-950 font-black text-sm transition flex items-center justify-center gap-2"
+              >
+                {savingTenant && <Loader2 className="w-4 h-4 animate-spin" />}
+                <span>{savingTenant ? 'Salvando...' : 'Salvar Alterações'}</span>
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
+
 // === FIM DA PARTE 1 — COLE A PARTE 2 LOGO ABAIXO ===
 // === INÍCIO DA PARTE 2 ===
 /* ============================================================================
@@ -4544,7 +4737,7 @@ function OwnerDashboardShell({
               </button>
             </div>
 
-            <form onSubmit={handleSaveBrandIdentity} className="space-y-4">
+<form onSubmit={handleSaveBrandIdentity} className="space-y-4">
               <div className="flex items-center gap-4 p-3.5 rounded-2xl bg-zinc-950 border border-zinc-800">
                 {brandLogoUrl ? (
                   <img src={brandLogoUrl} alt="Prévia" className="w-14 h-14 rounded-xl object-cover border border-amber-500/40" />
@@ -4585,6 +4778,29 @@ function OwnerDashboardShell({
                 />
               </div>
 
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[11px] font-bold uppercase text-zinc-400 mb-1">Nome do Responsável</label>
+                  <input
+                    type="text"
+                    required
+                    value={brandOwnerName}
+                    onChange={(e) => setBrandOwnerName(e.target.value)}
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-sm text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold uppercase text-zinc-400 mb-1">WhatsApp de Contato</label>
+                  <input
+                    type="text"
+                    value={brandOwnerPhone}
+                    onChange={(e) => setBrandOwnerPhone(e.target.value)}
+                    placeholder="(82) 99999-0000"
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-sm text-white"
+                  />
+                </div>
+              </div>
+
               <div>
                 <label className="block text-[11px] font-bold uppercase text-zinc-400 mb-1">
                   Prazo Mínimo para o Cliente Cancelar pelo Site
@@ -4610,7 +4826,7 @@ function OwnerDashboardShell({
               >
                 Salvar Configurações
               </button>
-            </form>
+            </form> 
           </div>
         </div>
       )}
