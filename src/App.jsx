@@ -2369,6 +2369,8 @@ function OwnerDashboardShell({
   const [showBrandModal, setShowBrandModal] = useState(false);
   const [brandName, setBrandName] = useState(tenant?.name || '');
   const [brandSlug, setBrandSlug] = useState(tenant?.slug || '');
+  const [brandOwnerName, setBrandOwnerName] = useState(tenant?.owner_name || '');
+  const [brandOwnerPhone, setBrandOwnerPhone] = useState(tenant?.owner_phone || '');
   const [brandLogoUrl, setBrandLogoUrl] = useState(tenant?.logo_url || '');
   const [minCancelHours, setMinCancelHours] = useState(String(tenant?.min_cancel_hours ?? 2));
   const [uploadingLogo, setUploadingLogo] = useState(false);
@@ -2477,10 +2479,13 @@ function OwnerDashboardShell({
       .update({
         name: brandName.trim(),
         slug: cleanSlug,
+        owner_name: brandOwnerName.trim() || tenant.owner_name,
+        owner_phone: brandOwnerPhone.trim() || null,
         logo_url: brandLogoUrl.trim() || null,
         min_cancel_hours: Number(minCancelHours) || 0,
       })
       .eq('id', tenant.id);
+      
 
     if (error) {
       notify('Esse link já está em uso por outra barbearia.');
@@ -3135,18 +3140,20 @@ function OwnerDashboardShell({
         />
 
         <div className="flex flex-wrap items-center gap-2">
-          <button
+<button
             onClick={() => {
               setBrandName(tenant.name || '');
               setBrandSlug(tenant.slug || '');
+              setBrandOwnerName(tenant.owner_name || '');
+              setBrandOwnerPhone(tenant.owner_phone || '');
               setBrandLogoUrl(tenant.logo_url || '');
               setMinCancelHours(String(tenant.min_cancel_hours ?? 2));
               setShowBrandModal(true);
             }}
             className="px-3.5 py-2 rounded-xl bg-zinc-950 border border-zinc-800 text-zinc-200 hover:border-amber-500/50 hover:text-white text-xs font-bold flex items-center gap-1.5 transition"
-            title="Personalizar Nome, Logo e Regras"
+            title="Editar Dados, WhatsApp de Contato, Logo e Regras"
           >
-            <SlidersHorizontal className="w-3.5 h-3.5 text-amber-400" /> Personalizar Marca
+            <SlidersHorizontal className="w-3.5 h-3.5 text-amber-400" /> Dados e Marca
           </button>
 
           <button
