@@ -2485,7 +2485,7 @@ function OwnerDashboardShell({
         min_cancel_hours: Number(minCancelHours) || 0,
       })
       .eq('id', tenant.id);
-      
+
 
     if (error) {
       notify('Esse link já está em uso por outra barbearia.');
@@ -2749,7 +2749,16 @@ function OwnerDashboardShell({
     }
     onRefresh();
   };
-
+const handleDeleteAppointment = async (apt) => {
+    if (!window.confirm(`Eliminar permanentemente a marcação de ${apt.client_name}?`)) return;
+    const { error } = await supabase.from('appointments').delete().eq('id', apt.id);
+    if (error) {
+      notify('Erro ao eliminar marcação: ' + error.message);
+      return;
+    }
+    notify('Marcação eliminada permanentemente.');
+    onRefresh();
+  };
   const handleAddService = async (e) => {
     e.preventDefault();
     if (!srvName || !srvPrice) return;
@@ -3773,6 +3782,13 @@ function OwnerDashboardShell({
                             )}
                           </div>
                         )}
+                        <button
+              onClick={() => handleDeleteAppointment(a)}
+              className="p-1.5 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-500 hover:border-rose-500/40 hover:text-rose-400 transition"
+              title="Eliminar marcação permanentemente"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
                       </div>
                     </div>
                   );
@@ -3782,6 +3798,7 @@ function OwnerDashboardShell({
           </div>
         </div>
       )}
+                      
 
       {/* ABA CLIENTES & PROMOÇÕES */}
       {activeTab === 'clientes' && (
